@@ -1,0 +1,121 @@
+# Pixaura AI 短剧生成平台 - Docker Compose 配置
+#
+# 使用方式:
+#   1. 仅启动基础设施（开发用）: docker compose -f docker/docker-compose.yml up -d
+#   2. 一键启动所有服务（部署用）: docker compose -f docker/docker-compose.yml --profile full up -d --build
+#
+# 定时任务已内置于 API 服务中，使用 @nestjs/schedule
+#   - 供应商健康检查: 每30秒执行一次
+#   - 模型调用日志清理: 每天凌晨3点执行（保留30天）
+#   - API Key 过期检查: 每天早上9点执行
+
+services:
+  # 统一入口：Nginx + 前端静态文件 + API 反向代理
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    image: pixaura-web:latest
+    container_name: pixaura-web
+    profiles:
+      - full
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - pixaura-network
+    restart: unless-stopped
+
+  # NestJS 后端 API
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    image: pixaura-api:latest
+    container_name: pixaura-api
+    profiles:
+      - full
+    env_file:
+      - ../.env
+    environment:
+      # Docker 网络中服务名替代 localhost
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+      APP_URL: http://api:3000
+      WEB_URL: http://localhost
+      LOCAL_STORAGE_DIR: /app/uploads
+      NGROK_API_URL: http://ngrok:4040
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "3000:3000"
+    networks:
+      - pixaura-network
+    restart: unless-stopped
+
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:18
+    container_name: pixaura-postgres
+    env_file:
+      - ../.env
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-pixaura}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-pixaura123}
+      POSTGRES_DB: ${DATABASE_NAME:-pixaura}
+    ports:
+      - "${DATABASE_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-pixaura} -d ${DATABASE_NAME:-pixaura}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pixaura-network
+    restart: unless-stopped
+
+  # Redis 缓存 / 队列
+  redis:
+    image: redis:8.4
+    container_name: pixaura-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pixaura-network
+    restart: unless-stopped
+
+  # ngrok 内网穿透（为需要公网 URL 的外部服务提供隧道）
+  ngrok:
+    image: ngrok/ngrok:3
+    container_name: pixaura-ngrok
+    profiles:
+      - full
+    command: http api:3000
+    env_file:
+      - ../.env
+    networks:
+      - pixaura-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+
+networks:
+  pixaura-network:
+    driver: bridge

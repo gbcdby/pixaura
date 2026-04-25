@@ -1,0 +1,188 @@
+# 团队产出物检查清单模板
+
+# 阶段定义
+stages:
+  # 策略阶段
+  strategy:
+    name: "策略制定"
+    description: "制定产品策略和技术方案"
+    required:
+      - id: prd
+        path: "/state/prd.md"
+        description: "产品需求文档"
+        check_type: file_exists
+        required_content:
+          - "产品目标"
+          - "用户画像"
+          - "核心功能"
+      - id: tech_decisions
+        path: "/state/tech-decisions.md"
+        description: "技术决策文档"
+        check_type: file_exists
+        optional: true
+    exit_criteria:
+      - prd_approved
+      - tech_stack_confirmed
+
+  # 需求阶段
+  req:
+    name: "需求细化"
+    description: "细化需求，撰写设计文档"
+    required:
+      - id: design_index
+        path: "/docs/design/{module}/index.md"
+        description: "设计总览文档"
+        check_type: file_exists
+      - id: api_design
+        path: "/docs/design/{module}/api.md"
+        description: "API 设计文档"
+        check_type: file_exists
+      - id: db_design
+        path: "/docs/design/{module}/db.md"
+        description: "数据库设计文档"
+        check_type: file_exists
+        optional: true
+      - id: web_design
+        path: "/docs/design/{module}/web.md"
+        description: "前端设计文档"
+        check_type: file_exists
+        optional: true
+    exit_criteria:
+      - design_docs_complete
+      - design_review_passed
+
+  # 设计阶段
+  design:
+    name: "UI/UX 设计"
+    description: "设计界面和交互"
+    required:
+      - id: ui_design
+        path: "/docs/ui/{module}/"
+        description: "UI 设计稿"
+        check_type: directory_exists
+      - id: design_tokens
+        path: "/docs/ui/{module}/tokens.md"
+        description: "Design Tokens"
+        check_type: file_exists
+        optional: true
+    exit_criteria:
+      - design_review_passed
+      - no_blocking_issues
+
+  # 开发阶段
+  dev:
+    name: "开发实现"
+    description: "前后端代码实现"
+    required:
+      - id: backend_code
+        type: git_commits
+        description: "后端代码提交"
+        check_type: git_log
+        pattern: "apps/api/"
+      - id: frontend_code
+        type: git_commits
+        description: "前端代码提交"
+        check_type: git_log
+        pattern: "apps/web/"
+      - id: unit_tests
+        type: test_result
+        description: "单元测试"
+        check_type: command
+        command: "pnpm test:unit"
+        optional: true
+    exit_criteria:
+      - all_tasks_completed
+      - code_review_passed
+      - unit_tests_passed
+
+  # 联调阶段
+  integrating:
+    name: "联调测试"
+    description: "前后端接口联调"
+    required:
+      - id: api_alignment
+        type: integration_test
+        description: "接口对齐"
+        check_type: manual
+      - id: e2e_test
+        type: test_result
+        description: "端到端测试"
+        check_type: manual
+    exit_criteria:
+      - frontend_backend_aligned
+      - api_contract_matched
+
+  # 测试阶段
+  qa:
+    name: "测试验证"
+    description: "全面测试验证"
+    required:
+      - id: test_report
+        path: "/docs/test-report/{module}/report.md"
+        description: "测试报告"
+        check_type: file_exists
+      - id: bug_list
+        path: "/docs/test-report/{module}/bugs.md"
+        description: "Bug 清单"
+        check_type: file_exists
+        optional: true
+    exit_criteria:
+      - all_test_cases_passed
+      - no_critical_bugs
+      - test_report_approved
+
+  # 完成阶段
+  done:
+    name: "项目完成"
+    description: "项目收尾"
+    required:
+      - id: archive_status
+        path: "docs/archive/{date}-{team-name}-status.md"
+        description: "状态文件归档"
+        check_type: file_exists
+      - id: updated_progress
+        path: "/docs/progress.md"
+        description: "更新项目进度"
+        check_type: file_exists
+    exit_criteria:
+      - all_artifacts_archived
+      - team_cleaned_up
+
+# 检查类型定义
+check_types:
+  file_exists:
+    description: "文件必须存在"
+    validation: "fs.existsSync(path)"
+
+  directory_exists:
+    description: "目录必须存在"
+    validation: "fs.existsSync(path) && fs.statSync(path).isDirectory()"
+
+  git_log:
+    description: "Git 提交记录"
+    validation: "git log --since={stage_start} -- {pattern} | grep -q ."
+
+  command:
+    description: "命令执行成功"
+    validation: "execSync(command).exitCode === 0"
+
+  manual:
+    description: "人工确认"
+    validation: "team_lead_confirms"
+
+# 产出物质量检查
+quality_checks:
+  code:
+    - lint_passed
+    - typecheck_passed
+    - no_console_errors
+
+  docs:
+    - has_table_of_contents
+    - no_broken_links
+    - images_exist
+
+  tests:
+    - coverage_above_80
+    - no_flaky_tests
+    - all_assertions_pass

@@ -1,0 +1,58 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build outputs
+dist
+build
+*.tsbuildinfo
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage
+.nyc_output
+
+# Cache
+.cache
+*.cache
+
+# Environment (should be mounted or passed at runtime)
+.env
+.env.local
+.env.*.local
+
+# Docker files (avoid recursive copies)
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# Documentation
+docs
+*.md
+
+# Playwright / test artifacts
+test-results
+playwright-report
+
+# Temporary files
+temp
+tmp
+uploads

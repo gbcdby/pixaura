@@ -1,0 +1,827 @@
+// 入口页专用样式
+// 包含动画定义、响应式样式、卡片样式等
+
+// ==================== 动画定义 ====================
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseSlow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0) translateX(-50%);
+  }
+  50% {
+    transform: translateY(-10px) translateX(-50%);
+  }
+}
+
+// 动画应用类
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.8s ease-out forwards;
+  opacity: 0;
+}
+
+.animate-pulse-slow {
+  animation: pulseSlow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-bounce {
+  animation: bounce 2s ease-in-out infinite;
+}
+
+.animate-draw {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: draw 3s ease-in-out forwards;
+}
+
+// ==================== 导航栏样式 ====================
+
+.entry-navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: 80px; // 参考 h-20 (实际81px)
+  background: rgba(255, 255, 255, 0.7); // 参考 glass-effect
+  backdrop-filter: blur(10px); // 参考实际值
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(229, 231, 235, 0.5); // 参考 border-gray-200/50
+  transition: all 0.3s ease;
+
+  &.scrolled {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); // 参考 shadow-sm
+  }
+
+  .navbar-content {
+    max-width: 1280px; // 参考 max-w-7xl
+    margin: 0 auto;
+    padding: 0 32px; // 参考 lg:px-8 实际渲染
+    height: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    @media (max-width: 768px) {
+      padding: 0 24px; // 参考 px-6
+    }
+  }
+
+  .logo-group {
+    display: flex;
+    align-items: center;
+    gap: 12px; // 参考 space-x-3
+    cursor: pointer;
+
+    &:hover .logo-icon {
+      transform: scale(1.1);
+    }
+
+    &:hover .logo-text {
+      opacity: 0.9;
+    }
+  }
+
+  .logo-icon {
+    width: 40px; // 参考 w-10
+    height: 40px;
+    background: linear-gradient(135deg, #8b9aff 0%, #b56cff 100%); // 参考渐变
+    border-radius: 8px; // 参考 rounded-lg 实际渲染
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: serif;
+    font-size: 20px;
+    font-style: italic;
+    font-weight: bold;
+    color: #ffffff;
+    transition: transform 0.3s ease;
+    box-shadow: 0 10px 15px -3px rgba(139, 154, 255, 0.2), 0 4px 6px -4px rgba(139, 154, 255, 0.2); // 参考 shadow-lg shadow-[#8b9aff]/20
+  }
+
+  .logo-text {
+    font-size: 24px; // 参考 text-2xl
+    font-family: serif;
+    font-weight: 600; // 参考 font-semibold
+    background: linear-gradient(135deg, #8b9aff 0%, #b56cff 100%); // 参考渐变
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    transition: opacity 0.3s ease;
+  }
+
+  .desktop-menu {
+    display: flex;
+    align-items: center;
+    gap: 32px; // 参考 space-x-8
+
+    @media (max-width: 768px) {
+      display: none;
+    }
+
+    a {
+      font-size: 14px; // 参考 text-sm
+      font-weight: 500;
+      color: #4b5563; // 参考 text-gray-600
+      text-decoration: none; // 移除默认下划线
+      position: relative;
+      transition: color 0.3s ease;
+
+      &:hover {
+        color: #0a0a0a; // 参考 hover:text-primary
+
+        &::after {
+          width: 100%;
+        }
+      }
+
+      &::after {
+        content: '';
+        position: absolute;
+        bottom: -4px; // 参考 -bottom-1
+        left: 0;
+        width: 0;
+        height: 2px;
+        background: linear-gradient(to right, #8b9aff, #b56cff); // 参考渐变
+        transition: width 0.3s ease;
+      }
+    }
+  }
+
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px; // 参考 space-x-4
+
+    @media (max-width: 768px) {
+      display: none;
+    }
+  }
+
+  .mobile-menu-btn {
+    display: none;
+
+    @media (max-width: 768px) {
+      display: flex;
+    }
+  }
+
+  .mobile-menu {
+    position: absolute;
+    top: 80px;
+    left: 0;
+    right: 0;
+    background: #ffffff; // 参考 bg-white
+    border-top: 1px solid rgba(243, 244, 246, 1); // 参考 border-gray-100
+    padding: 16px 24px;
+
+    a {
+      display: block;
+      padding: 8px 0; // 参考 py-2
+      color: #4b5563; // 参考 text-gray-600
+      font-size: 14px;
+
+      &:hover {
+        color: #0a0a0a;
+      }
+    }
+  }
+}
+
+// ==================== Hero 区域样式 ====================
+
+.hero-section {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 80px; // 参考 pt-20
+  overflow: hidden;
+}
+
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+
+  .hero-gradient {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 50%, rgba(139, 154, 255, 0.1) 0%, transparent 50%); // 参考 hero-gradient
+  }
+
+  .floating-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(60px);
+
+    &.orb-1 {
+      width: 384px; // 参考 w-96
+      height: 384px;
+      top: 25%;
+      left: 25%;
+      background: rgba(139, 154, 255, 0.1); // 参考 bg-[#8b9aff]/10
+    }
+
+    &.orb-2 {
+      width: 256px; // 参考 w-64
+      height: 256px;
+      bottom: 25%;
+      right: 25%;
+      background: rgba(181, 108, 255, 0.1); // 参考 bg-[#b56cff]/10
+      animation-delay: 2s;
+    }
+  }
+}
+
+.hero-content {
+  position: relative;
+  z-index: 1;
+  max-width: 1280px; // 参考 max-w-7xl
+  margin: 0 auto;
+  padding: 0 32px; // 参考 lg:px-8 实际渲染
+  text-align: center;
+
+  @media (max-width: 768px) {
+    padding: 0 24px;
+  }
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: #ffffff; // 参考 bg-white
+  border: 1px solid rgb(229, 231, 235); // 参考 border-gray-200 实色
+  border-radius: 9999px;
+  margin-bottom: 32px; // 参考 mb-8
+  animation-delay: 0.1s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); // 参考 shadow-sm
+
+  .badge-dot {
+    width: 8px; // 参考 h-2 w-2
+    height: 8px;
+    border-radius: 50%;
+    background: linear-gradient(to right, #8b9aff, #b56cff); // 参考 bg-gradient-to-r
+    margin-right: 8px;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; // 参考 animate-pulse
+  }
+
+  .badge-text {
+    font-size: 12px; // 参考 text-xs
+    font-weight: 500;
+    color: #4b5563; // 参考 text-gray-600
+    letter-spacing: 0.05em; // 参考 tracking-wide
+    text-transform: uppercase;
+  }
+}
+
+.hero-title {
+  font-size: 96px; // 参考 lg:text-8xl (实际渲染96px)
+  font-family: serif;
+  font-weight: 500;
+  line-height: 1.0; // 参考实际渲染96px行高
+  margin-bottom: 24px; // 参考 mb-6
+  animation-delay: 0.2s;
+
+  @media (max-width: 1024px) {
+    font-size: 64px; // 参考 md:text-7xl
+    line-height: 1.1;
+  }
+
+  @media (max-width: 768px) {
+    font-size: 48px; // 参考 text-5xl
+    line-height: 1.1;
+  }
+
+  @media (max-width: 480px) {
+    font-size: 36px;
+  }
+
+  .title-line {
+    display: block;
+    color: #0a0a0a; // 参考 text-primary (#0a0a0a)
+  }
+
+  .title-gradient {
+    display: block;
+    margin-top: 8px; // 参考 mt-2
+    font-style: italic;
+    background: linear-gradient(135deg, #8b9aff 0%, #b56cff 100%); // 参考渐变
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
+.hero-subtitle {
+  font-size: 20px; // 参考 text-lg md:text-xl
+  color: #4b5563; // 参考 text-gray-600
+  line-height: 28px; // 参考实际渲染值
+  max-width: 672px; // 参考 max-w-2xl 实际渲染
+  margin: 24px auto 40px; // 参考 mt-6 mb-10
+  animation-delay: 0.3s;
+
+  @media (max-width: 768px) {
+    font-size: 16px;
+  }
+}
+
+.hero-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  animation-delay: 0.4s;
+
+  @media (min-width: 640px) {
+    flex-direction: row;
+    justify-content: center;
+  }
+}
+
+.scroll-indicator {
+  position: absolute;
+  bottom: 40px; // 参考 bottom-10
+  left: 50%;
+  color: #9ca3af; // 参考 text-gray-400
+}
+
+// ==================== 功能特性区块样式 ====================
+
+.features-section {
+  padding: 96px 0; // 参考 py-24
+  background: #ffffff; // 参考 bg-white
+}
+
+.section-container {
+  max-width: 1280px; // 参考 max-w-7xl
+  margin: 0 auto;
+  padding: 0 32px; // 参考 px-6 lg:px-8 实际渲染
+
+  @media (max-width: 768px) {
+    padding: 0 24px;
+  }
+}
+
+.section-header {
+  text-align: center;
+  max-width: 768px; // 参考 max-w-3xl
+  margin: 0 auto 80px; // 参考 mb-20
+
+  .section-title {
+    font-size: 36px; // 参考 text-4xl
+    font-family: serif;
+    font-weight: 500;
+    color: #0a0a0a; // 参考 text-primary
+    margin-bottom: 16px;
+
+    @media (max-width: 768px) {
+      font-size: 28px; // 参考 text-3xl
+    }
+  }
+
+  .section-desc {
+    font-size: 18px; // 参考 text-lg
+    color: #4b5563; // 参考 text-gray-600
+
+    @media (max-width: 768px) {
+      font-size: 14px;
+    }
+  }
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+
+  @media (max-width: 1024px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.feature-card {
+  padding: 32px; // 参考 p-8
+  background: #fafafa; // 参考 bg-secondary
+  border: 1px solid rgba(243, 244, 246, 1); // 参考 border-gray-100
+  border-radius: 16px; // 参考 rounded-2xl
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 40px -15px rgba(139, 154, 255, 0.2);
+  }
+
+  .icon-wrapper {
+    width: 56px; // 参考 w-14
+    height: 56px; // 参考 h-14
+    background: #ffffff; // 参考 bg-white
+    border-radius: 12px; // 参考 rounded-xl
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); // 参考 shadow-sm
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px; // 参考 mb-6
+    transition: transform 0.3s ease;
+
+    .icon-svg {
+      display: block;
+    }
+  }
+
+  &:hover .icon-wrapper {
+    transform: scale(1.1);
+  }
+
+  .icon-gradient {
+    // 图标渐变通过 SVG 内联实现
+    display: none;
+  }
+
+  .card-title {
+    font-size: 20px; // 参考 text-xl
+    font-weight: 600; // 参考 font-semibold
+    color: #0a0a0a; // 参考 text-primary
+    margin-bottom: 12px; // 参考 mb-3
+  }
+
+  .card-desc {
+    font-size: 14px;
+    color: #4b5563; // 参考 text-gray-600
+    line-height: 1.6;
+  }
+}
+
+.workflow-visual {
+  margin-top: 60px;
+  position: relative;
+
+  // 连接线容器
+  .workflow-connector {
+    position: absolute;
+    top: 24px; // 圆圈中心位置 (48px / 2)
+    left: calc(10% + 24px); // 第一个圆圈中心
+    right: calc(10% + 24px); // 最后一个圆圈中心
+    height: 2px;
+    z-index: 0;
+
+    .connector-line {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, #8b9aff 0%, #b56cff 100%);
+      opacity: 0.3;
+      border-radius: 1px;
+    }
+  }
+
+  .workflow-steps {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+    position: relative;
+    z-index: 1;
+
+    @media (max-width: 768px) {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    @media (max-width: 480px) {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+}
+
+.workflow-step {
+  text-align: center;
+
+  .step-circle {
+    width: 48px; // 参考 w-12
+    height: 48px;
+    margin: 0 auto 8px; // 参考 mb-2
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+
+    &.active {
+      background: linear-gradient(to right bottom, #8b9aff, #b56cff); // 参考 bg-gradient-to-br
+      color: #ffffff;
+      box-shadow: 0 10px 15px -3px rgba(139, 154, 255, 0.3), 0 4px 6px -4px rgba(139, 154, 255, 0.3); // 参考 shadow-lg shadow-[#8b9aff]/30
+    }
+
+    &.inactive {
+      background: #ffffff; // 参考 bg-white
+      border: 2px solid rgb(229, 231, 235); // 参考 border-2 border-gray-200 实色
+      color: #9ca3af; // 参考 text-gray-400
+    }
+  }
+
+  .step-label {
+    font-size: 12px; // 参考 text-xs
+    font-weight: 500;
+    color: #0a0a0a; // 参考 text-primary
+  }
+
+  &.inactive .step-label {
+    color: #9ca3af; // 参考 text-gray-400，非激活步骤使用更浅的灰色
+  }
+}
+
+// ==================== 作品展示区块样式 ====================
+
+.showcase-section {
+  padding: 96px 0; // 参考 py-24
+  background: #fafafa; // 参考 bg-secondary
+}
+
+.section-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 48px; // 参考 mb-12
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 24px;
+  }
+
+  .header-left {
+    .section-title {
+      font-size: 36px; // 参考 text-3xl md:text-4xl
+      font-family: serif;
+      font-weight: 500;
+      color: #0a0a0a;
+      margin-bottom: 16px; // 参考 mb-4
+
+      @media (max-width: 768px) {
+        font-size: 28px;
+      }
+    }
+
+    .section-desc {
+      font-size: 16px;
+      color: #4b5563;
+      max-width: 576px; // 参考 max-w-xl 实际渲染
+    }
+  }
+
+  .view-all-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    background: linear-gradient(135deg, #8b9aff 0%, #b56cff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    transition: opacity 0.3s ease;
+
+    &:hover {
+      opacity: 0.8;
+    }
+  }
+}
+
+.showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+
+  @media (max-width: 1024px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+    max-width: 400px;
+    margin: 0 auto;
+  }
+}
+
+.showcase-card {
+  position: relative;
+  aspect-ratio: 4 / 5; // 参考 aspect-[4/5]
+  background: rgba(229, 231, 235, 1); // 参考 bg-gray-200
+  border-radius: 16px; // 参考 rounded-2xl
+  overflow: hidden;
+  cursor: pointer;
+
+  .cover-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.7s ease; // 参考 duration-700
+  }
+
+  &:hover .cover-image {
+    transform: scale(1.1);
+  }
+
+  .card-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.2) 50%, transparent 100%); // 参考 bg-gradient-to-t from-black/80 via-black/20 to-transparent
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 24px; // 参考 p-6
+  }
+
+  &:hover .card-overlay {
+    opacity: 1;
+  }
+
+  .card-category {
+    font-size: 12px; // 参考 text-xs
+    font-weight: 500;
+    background: linear-gradient(135deg, #8b9aff 0%, #b56cff 100%); // 参考渐变
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px; // 参考 mb-2
+  }
+
+  .card-title {
+    font-size: 20px; // 参考 text-xl
+    font-weight: 600; // 参考 font-semibold
+    color: #ffffff;
+    margin-bottom: 8px; // 参考 mb-2
+  }
+
+  .card-desc {
+    font-size: 14px; // 参考 text-sm
+    color: rgba(209, 213, 219, 1); // 参考 text-gray-300
+    line-height: 1.5;
+  }
+}
+
+// ==================== CTA 区块样式 ====================
+
+.cta-section {
+  padding: 96px 0; // 参考 py-24
+  background: #ffffff; // 参考 bg-white
+  position: relative;
+  overflow: hidden;
+
+  .cta-bg {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(139, 154, 255, 0.05) 0%, transparent 50%, rgba(181, 108, 255, 0.05) 100%); // 参考渐变
+  }
+}
+
+.cta-content {
+  position: relative;
+  z-index: 1;
+  max-width: 896px; // 参考 max-w-4xl 实际渲染
+  margin: 0 auto;
+  padding: 0 32px; // 参考 px-6 lg:px-8
+  text-align: center;
+
+  @media (max-width: 768px) {
+    padding: 0 24px;
+  }
+
+  .cta-title {
+    font-size: 48px; // 参考 text-4xl md:text-5xl
+    font-family: serif;
+    font-weight: 500;
+    color: #0a0a0a;
+    margin-bottom: 24px; // 参考 mb-6
+
+    @media (max-width: 768px) {
+      font-size: 36px;
+    }
+  }
+
+  .cta-subtitle {
+    font-size: 20px; // 参考 text-xl
+    color: #4b5563;
+    margin-bottom: 40px; // 参考 mb-10
+
+    @media (max-width: 768px) {
+      font-size: 16px;
+    }
+  }
+
+  .cta-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px; // 参考 gap-4
+
+    @media (min-width: 640px) {
+      flex-direction: row;
+      justify-content: center;
+    }
+  }
+}
+
+// ==================== Footer 样式 ====================
+
+.entry-footer {
+  padding: 32px 0;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); // 浅灰渐变
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.footer-content {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 32px;
+  text-align: center;
+
+  @media (max-width: 768px) {
+    padding: 0 24px;
+  }
+
+  .copyright {
+    font-size: 14px;
+    color: #9ca3af; // 参考 text-gray-400
+  }
+}
+
+// ==================== 按钮样式增强 ====================
+
+.btn-gradient {
+  background: linear-gradient(135deg, #8b9aff 0%, #b56cff 100%) !important; // 参考渐变
+  color: #ffffff !important;
+  border-radius: 9999px !important;
+  transition: all 0.3s ease !important;
+
+  &:hover {
+    opacity: 0.9;
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px -10px rgba(139, 154, 255, 0.5);
+  }
+}
+
+.btn-outline {
+  background: #ffffff !important; // 参考 bg-white
+  color: #0a0a0a !important; // 参考 text-primary
+  border: 1px solid rgba(229, 231, 235, 1) !important; // 参考 border-gray-200
+  border-radius: 9999px !important;
+  transition: all 0.3s ease !important;
+
+  &:hover {
+    background: rgba(250, 250, 250, 1) !important; // 参考 hover:bg-gray-50
+    border-color: rgba(139, 154, 255, 0.3) !important; // 参考 hover:border-[#8b9aff]/30
+  }
+}

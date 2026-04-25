@@ -1,0 +1,56 @@
+{
+  "name": "@pixaura/shared-types",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./model-config": {
+      "import": {
+        "types": "./dist/model-config.d.ts",
+        "default": "./dist/model-config.js"
+      },
+      "require": {
+        "types": "./dist/model-config.d.ts",
+        "default": "./dist/model-config.cjs"
+      }
+    },
+    "./billing": {
+      "import": {
+        "types": "./dist/billing.d.ts",
+        "default": "./dist/billing.js"
+      },
+      "require": {
+        "types": "./dist/billing.d.ts",
+        "default": "./dist/billing.cjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup && node scripts/fix-dts.cjs",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.8",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.2"
+  }
+}

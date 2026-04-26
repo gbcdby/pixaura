@@ -9,7 +9,7 @@
 
 ## Docker 一键部署（推荐）
 
-无需安装 Node.js / pnpm，仅需 Docker。
+[教程链接](https://b23.tv/Yr4jfc0?bvid=BVxxxxxx)，无需安装 Node.js / pnpm，仅需 Docker。
 
 ### 1. 配置环境变量
 
@@ -144,3 +144,10 @@ pnpm db:migrate:revert      # 回滚 migration
 pnpm db:generate            # 生成 migration
 ```
 
+
+## 外部服务平台 API KEY 申请
+- [Ngrok](https://dashboard.ngrok.com/get-started/your-authtoken)
+- [阿里云百炼](https://bailian.console.aliyun.com/cn-beijing/?tab=app#/api-key)
+- [EvoLink](https://evolink.ai/zh/dashboard/keys)
+- [火山引擎 OmniHuman1.5 服务开通](https://console.volcengine.com/ai/ability/detail/2)
+- [火山引擎](https://console.volcengine.com/iam/keymanage)

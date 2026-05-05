@@ -477,11 +477,29 @@ watch(
     // 使用剧本级别的模型配置
     const defaultFromScript = scriptModelsStore.getDefaultModelId("script");
     const firstAvailable = modelOptions.value[0]?.value;
-    return defaultFromScript || firstAvailable || "";
+    return {
+      effectiveModelId: defaultFromScript || firstAvailable || "",
+      hasScriptConfig: !!defaultFromScript,
+    };
   },
-  (effectiveModelId) => {
+  async ({ effectiveModelId, hasScriptConfig }) => {
     if (effectiveModelId && !selectedModelId.value) {
       selectedModelId.value = String(effectiveModelId);
+
+      // 如果后端没有剧本模型配置（回退到第一个可用模型），自动保存到后端
+      // 避免 parse-resources 时后端查不到模型 ID
+      if (!hasScriptConfig && props.projectId && props.scriptId) {
+        try {
+          await scriptModelsStore.updateScriptModelConfig(
+            props.projectId,
+            props.scriptId,
+            "script",
+            String(effectiveModelId),
+          );
+        } catch (error) {
+          console.error("自动保存默认模型配置失败:", error);
+        }
+      }
     }
   },
   { immediate: true },

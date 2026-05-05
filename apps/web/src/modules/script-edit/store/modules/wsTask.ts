@@ -326,6 +326,8 @@ export function createWsTaskManager(refs: CoreStoreRefs) {
             console.log(
               `[STORYBOARD_PARSE_PROGRESS] 设置为 completed，新状态: ${steps.value.storyboards.storyboardParseStatus}`,
             );
+            // 清除分批信息
+            steps.value.storyboards.parseBatchInfo = undefined;
             if (subscription) {
               subscription.unsubscribe();
             }
@@ -336,6 +338,8 @@ export function createWsTaskManager(refs: CoreStoreRefs) {
             });
           } else if (parseData.status === "failed") {
             steps.value.storyboards.storyboardParseStatus = "failed";
+            // 清除分批信息
+            steps.value.storyboards.parseBatchInfo = undefined;
             console.error("分镜解析失败:", parseData.error?.message);
             if (subscription) {
               subscription.unsubscribe();
@@ -344,6 +348,10 @@ export function createWsTaskManager(refs: CoreStoreRefs) {
             // 更新进度
             steps.value.storyboards.storyboardParseStatus = "processing";
             steps.value.storyboards.progress = parseData.progress || 0;
+            // 存储分批信息（如果存在）
+            if (parseData.batchInfo) {
+              steps.value.storyboards.parseBatchInfo = parseData.batchInfo;
+            }
           }
         },
       ),

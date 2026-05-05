@@ -74,8 +74,7 @@ export async function generateAssetImage(
     negativePrompt?: string;
   },
 ): Promise<void> {
-  const { projectId, scriptId, steps, buildContentForSave, creationSettings } =
-    storeRefs;
+  const { projectId, scriptId, steps, creationSettings } = storeRefs;
 
   if (!projectId.value || !scriptId.value) return;
 
@@ -92,19 +91,6 @@ export async function generateAssetImage(
   step.imageGeneratingIds = reactiveSetAdd(step.imageGeneratingIds, refId);
   step.imageGenerationProgress[refId] = 0;
   delete step.imageGenerationErrors[refId];
-
-  // 使用 Store 中的数据直接保存（单一数据源）
-  // Worker 会通过 WebSocket 通知前端更新图片
-  try {
-    const content = buildContentForSave();
-
-    await scriptApi.updateScript(projectId.value, scriptId.value, {
-      content:
-        content as unknown as import("@pixaura/shared-types").UpdateScriptDto["content"],
-    });
-  } catch (e) {
-    console.error("[generateAssetImage] 持久化资产数据失败:", e);
-  }
 
   // 场景图片使用剧本分辨率对应的比例，角色和道具不传
   const sizeParams =

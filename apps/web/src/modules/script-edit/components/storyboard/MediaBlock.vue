@@ -8,13 +8,13 @@ import {
   NImage,
   NImageGroup,
   NSpin,
+  useDialog,
   type UploadFileInfo,
 } from "naive-ui";
 import {
   Videocam,
   Sparkles,
-  CloudUpload,
-  CloseOutline,
+  TrashOutline,
   CloudUploadOutline,
   ScanOutline,
 } from "@vicons/ionicons5";
@@ -32,6 +32,9 @@ import {
   useVideoConcat,
   type VideoClip,
 } from "@/composables/useVideoConcat";
+
+// Dialog 实例
+const dialog = useDialog();
 
 // 角色信息接口
 interface CharacterInfo {
@@ -159,7 +162,15 @@ function handleReferenceUpload({ file }: { file: { file: File | null } }) {
 
 // 处理参考图删除
 function handleDeleteReference(imageId: string) {
-  emit("delete-reference", imageId);
+  dialog.warning({
+    title: "确认删除",
+    content: "确定要删除这张参考图片吗？此操作不可恢复。",
+    positiveText: "删除",
+    negativeText: "取消",
+    onPositiveClick: () => {
+      emit("delete-reference", imageId);
+    },
+  });
 }
 
 // 处理视频参考图上传
@@ -173,7 +184,15 @@ function handleVideoReferenceUpload({ file }: { file: { file: File | null } }) {
 
 // 处理视频参考图删除
 function handleDeleteVideoReference(imageId: string) {
-  emit("delete-video-reference", imageId);
+  dialog.warning({
+    title: "确认删除",
+    content: "确定要删除这张参考图片吗？此操作不可恢复。",
+    positiveText: "删除",
+    negativeText: "取消",
+    onPositiveClick: () => {
+      emit("delete-video-reference", imageId);
+    },
+  });
 }
 
 // 处理生成图片
@@ -263,7 +282,7 @@ const shouldPlayVoiceover = computed(() => {
 });
 
 // 旁白音频 URL
-const voiceoverAudioUrl = computed(() => voiceoverDialogue.value?.audioUrl || null);
+const voiceoverAudioUrl = computed(() => voiceoverDialogue.value?.audioUrl || undefined);
 
 // 视频播放事件处理
 function handleVideoPlay() {
@@ -577,14 +596,6 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
             @seeked="handleVideoSeeked"
             @ended="handleVideoEnded"
           />
-          <!-- 隐藏的旁白音频元素（video_only 模式下同步播放） -->
-          <audio
-            v-if="shouldPlayVoiceover && voiceoverAudioUrl"
-            ref="audioRef"
-            :src="voiceoverAudioUrl"
-            preload="auto"
-            style="display: none"
-          />
           <!-- 视频生成失败状态（检查新旧字段） -->
           <div
             v-else-if="(data.video?.status === 'failed') || (data.videoGeneration?.status === 'failed')"
@@ -614,6 +625,14 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
             <!-- 占位提示 -->
             <span style="font-size: 12px; color: #888">暂无分镜视频</span>
           </div>
+          <!-- 隐藏的旁白音频元素（video_only 模式下同步播放） -->
+          <audio
+            v-show="shouldPlayVoiceover && voiceoverAudioUrl"
+            ref="audioRef"
+            :src="voiceoverAudioUrl"
+            preload="auto"
+            style="display: none"
+          />
         </div>
         <!-- 视频参考图 -->
         <div
@@ -644,10 +663,12 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
                     size="tiny"
                     circle
                     type="error"
+                    quaternary
+                    class="reference-delete-btn"
                     @click="handleDeleteVideoReference(refImg.id)"
                   >
                     <template #icon>
-                      <n-icon><CloseOutline /></n-icon>
+                      <n-icon><TrashOutline /></n-icon>
                     </template>
                   </n-button>
                 </div>
@@ -667,7 +688,7 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
             >
               <div class="reference-upload-btn">
                 <n-icon size="18">
-                  <CloudUpload />
+                  <CloudUploadOutline />
                 </n-icon>
               </div>
             </n-upload>
@@ -837,7 +858,7 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
                   >
                     <div class="upload-btn">
                       <n-icon size="14">
-                        <CloudUpload />
+                        <CloudUploadOutline />
                       </n-icon>
                     </div>
                   </n-upload>
@@ -951,10 +972,12 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
                     size="tiny"
                     circle
                     type="error"
+                    quaternary
+                    class="reference-delete-btn"
                     @click="handleDeleteReference(refImg.id)"
                   >
                     <template #icon>
-                      <n-icon><CloseOutline /></n-icon>
+                      <n-icon><TrashOutline /></n-icon>
                     </template>
                   </n-button>
                 </div>
@@ -974,7 +997,7 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
             >
               <div class="reference-upload-btn">
                 <n-icon size="18">
-                  <CloudUpload />
+                  <CloudUploadOutline />
                 </n-icon>
               </div>
             </n-upload>
@@ -1087,14 +1110,6 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
             @seeked="handleVideoSeeked"
             @ended="handleVideoEnded"
           />
-          <!-- 隐藏的旁白音频元素（video_only 模式下同步播放） -->
-          <audio
-            v-if="shouldPlayVoiceover && voiceoverAudioUrl"
-            ref="audioRef"
-            :src="voiceoverAudioUrl"
-            preload="auto"
-            style="display: none"
-          />
           <!-- 对口型模式：使用 MSE 播放器无缝播放多个视频片段 -->
           <MseVideoPlayer
             v-else-if="isLipSyncMode && shotVideoUrls.length >= 1"
@@ -1153,6 +1168,14 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
             <!-- 占位提示 -->
             <span style="font-size: 12px; color: #888">暂无分镜视频</span>
           </div>
+          <!-- 隐藏的旁白音频元素（video_only 模式下同步播放） -->
+          <audio
+            v-show="shouldPlayVoiceover && voiceoverAudioUrl"
+            ref="audioRef"
+            :src="voiceoverAudioUrl"
+            preload="auto"
+            style="display: none"
+          />
         </div>
         <!-- 视频参考图（对口型模式下隐藏） -->
         <div
@@ -1183,10 +1206,12 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
                     size="tiny"
                     circle
                     type="error"
+                    quaternary
+                    class="reference-delete-btn"
                     @click="handleDeleteVideoReference(refImg.id)"
                   >
                     <template #icon>
-                      <n-icon><CloseOutline /></n-icon>
+                      <n-icon><TrashOutline /></n-icon>
                     </template>
                   </n-button>
                 </div>
@@ -1206,7 +1231,7 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
             >
               <div class="reference-upload-btn">
                 <n-icon size="18">
-                  <CloudUpload />
+                  <CloudUploadOutline />
                 </n-icon>
               </div>
             </n-upload>
@@ -1355,13 +1380,18 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
     flex-wrap: wrap;
     gap: 6px;
     align-items: flex-start;
+
+    :deep(.n-upload) {
+      width: auto;
+      flex-shrink: 0;
+    }
   }
 
   .reference-item {
     position: relative;
-    width: 48px;
-    height: 48px;
-    border-radius: 8px;
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
     overflow: hidden;
     border: 1px solid #f0f0f0;
     flex-shrink: 0;
@@ -1381,17 +1411,20 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
 
   .reference-hover-actions {
     position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    top: -4px;
+    right: -4px;
+    z-index: 2;
+  }
+
+  .reference-delete-btn {
+    background: #fff !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
   }
 
   .reference-upload-btn {
-    width: 48px;
-    height: 48px;
-    border-radius: 8px;
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
     border: 2px dashed #e0e0e0;
     display: flex;
     align-items: center;
@@ -1399,7 +1432,6 @@ watch(concatenatedVideoUrl, (_newUrl, oldUrl) => {
     cursor: pointer;
     flex-shrink: 0;
     color: #ccc;
-    background: #fafafa;
     transition: all 0.2s;
 
     &:hover {

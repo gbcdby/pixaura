@@ -134,6 +134,9 @@ export function useStoryboardCard(
   // 对话列表：本地编辑状态，会响应 props.data.dialogues 的变化
   const dialogues = ref<DialogueItem[]>([]);
 
+  // 对话原始值快照（用于 blur 时检测是否有实际变更，避免无意义保存）
+  let originalDialoguesSnapshot = "";
+
   // Bug #2 关键修复：直接监听 props.data.dialogues，确保 Vue 正确追踪依赖
   // 之前的 JSON.stringify 方式无法正确触发响应式更新
   watch(
@@ -159,6 +162,11 @@ export function useStoryboardCard(
           | "voiceover",
       }));
       dialogues.value = formattedDialogues;
+
+      // 同步原始值快照（父组件更新数据后重置基准）
+      originalDialoguesSnapshot = JSON.stringify(
+        dialogues.value.map((d) => toRaw(d)),
+      );
 
       // 检查角色对话是否缺少 characterId，给出警告
       const invalidDialogues = dialogues.value.filter(
@@ -685,9 +693,11 @@ export function useStoryboardCard(
   function handleDescriptionBlur() {
     if (localDescription.value !== props.data.description) {
       // BUG 修复：使用 toRaw 获取原始数据，避免展开响应式代理时丢失 images 等字段
+      // cameraMovement 已融入 description，清空独立字段
       emit("update", {
         ...toRaw(props.data),
         description: localDescription.value,
+        cameraMovement: undefined,
       });
     }
   }
@@ -779,9 +789,13 @@ export function useStoryboardCard(
     }
   }
 
-  // 对话文本失焦时上报父组件（blur 保存）
+  // 对话文本失焦时上报父组件（blur 保存，内容无变化则跳过）
   function flushDialogueUpdate() {
+    const current = JSON.stringify(dialogues.value.map((d) => toRaw(d)));
+    if (current === originalDialoguesSnapshot) return;
+
     emit("dialogueUpdate", props.data.id, dialogues.value);
+    originalDialoguesSnapshot = current;
   }
 
   // 删除对话

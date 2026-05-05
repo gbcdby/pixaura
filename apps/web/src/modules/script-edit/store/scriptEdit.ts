@@ -53,6 +53,7 @@ import {
   createCoreGetters,
   createCoreActions,
   createWsTaskManager,
+  enqueueUpdate,
 } from "./modules";
 
 // 导入 composables
@@ -646,7 +647,9 @@ export const useScriptEditStore = defineStore("scriptEdit", () => {
         modelConfigMap.set("script", steps.value.script.modelId);
 
       // 重新初始化步骤（resolvedAssets 新数据 + content 引用数据）
-      initializeStepsFromScript(script.value, modelConfigMap);
+      // skipStoryboards: true —— refreshResolvedAssets 只刷新资产数据，分镜数据不应被重新初始化
+      // 避免 shotGroups 数组引用变化触发 StoryboardStep watch 导致不必要的 PUT /shot-groups
+      initializeStepsFromScript(script.value, modelConfigMap, { skipStoryboards: true });
 
       console.log("[refreshResolvedAssets] 素材库数据已刷新");
     } catch (error) {
@@ -662,6 +665,7 @@ export const useScriptEditStore = defineStore("scriptEdit", () => {
   function initializeStepsFromScript(
     scriptData: ScriptDetailDto,
     modelConfigMap?: Map<string, string>,
+    options?: { skipStoryboards?: boolean },
   ) {
     // 初始化剧本描述
     // Bug 修复：只有当新数据有内容，且当前没有未保存的变更时才更新
@@ -990,9 +994,11 @@ export const useScriptEditStore = defineStore("scriptEdit", () => {
     }
 
     // 初始化分镜（只从 shotGroups 读取）
-    let storyboards: StoryboardRef[];
+    // 防级联：refreshResolvedAssets 等场景下跳过，避免无数据变化时替换数组引用触发 StoryboardStep watch 保存
+    if (!options?.skipStoryboards) {
+      let storyboards: StoryboardRef[];
 
-    // 从 shotGroups 读取分镜数据
+      // 从 shotGroups 读取分镜数据
     const shotGroups = (content.shotGroups as Array<ShotGroup & {
       // 后端可能存储的字段（不在 shared-types 中定义）
       mainImageKey?: string;
@@ -1192,6 +1198,7 @@ export const useScriptEditStore = defineStore("scriptEdit", () => {
         ? "completed"
         : "processing";
     }
+    } // end if (!options?.skipStoryboards)
 
     // 恢复分镜解析状态（从 script.metadata 读取）
     // 后端 Worker 将状态存储在 metadata 中，而不是 steps 字段
@@ -1199,6 +1206,13 @@ export const useScriptEditStore = defineStore("scriptEdit", () => {
       storyboardParseStatus?: string;
       storyboardParseError?: string;
       storyboardParseTaskId?: string;
+      storyboardParseProgress?: number;
+      storyboardParseBatchInfo?: {
+        currentBatch: number;
+        totalBatches: number;
+        completedShots: number;
+        estimatedTotalShots?: number;
+      };
     } | undefined;
 
     console.log(
@@ -1227,8 +1241,20 @@ export const useScriptEditStore = defineStore("scriptEdit", () => {
         metadata.storyboardParseTaskId
       ) {
         steps.value.storyboards.currentTaskId = metadata.storyboardParseTaskId;
+        // 从 metadata 恢复进度和分批信息
+        steps.value.storyboards.progress =
+          (metadata.storyboardParseProgress as number) || 0;
+        steps.value.storyboards.parseBatchInfo = metadata
+          .storyboardParseBatchInfo as
+          | {
+              currentBatch: number;
+              totalBatches: number;
+              completedShots: number;
+              estimatedTotalShots?: number;
+            }
+          | undefined;
         console.log(
-          `[initializeStepsFromScript] 检测到进行中的分镜解析任务: ${metadata.storyboardParseTaskId}`,
+          `[initializeStepsFromScript] 检测到进行中的分镜解析任务: ${metadata.storyboardParseTaskId}, 恢复进度: ${steps.value.storyboards.progress}`,
         );
       }
     } else {
@@ -2204,8 +2230,26 @@ export const useScriptEditStore = defineStore("scriptEdit", () => {
     step.items[idx] = { ...toRaw(step.items[idx]), ...data };
 
     try {
-      await scriptApi.updateScript(projectId.value, scriptId.value, {
-        content: buildContentForSave(),
+      await enqueueUpdate(`script:${scriptId.value}`, () => {
+        if (assetType === "character") {
+          return scriptApi.updateCharacters(
+            projectId.value,
+            scriptId.value,
+            step.items as CharacterRef[],
+          );
+        } else if (assetType === "scene") {
+          return scriptApi.updateScenes(
+            projectId.value,
+            scriptId.value,
+            step.items as SceneRef[],
+          );
+        } else {
+          return scriptApi.updateProps(
+            projectId.value,
+            scriptId.value,
+            step.items as PropRef[],
+          );
+        }
       });
       // 成功后清除快照
       clearSnapshot();
@@ -2241,8 +2285,26 @@ export const useScriptEditStore = defineStore("scriptEdit", () => {
     const removed = step.items.splice(idx, 1)[0];
 
     try {
-      await scriptApi.updateScript(projectId.value, scriptId.value, {
-        content: buildContentForSave(),
+      await enqueueUpdate(`script:${scriptId.value}`, () => {
+        if (assetType === "character") {
+          return scriptApi.updateCharacters(
+            projectId.value,
+            scriptId.value,
+            step.items as CharacterRef[],
+          );
+        } else if (assetType === "scene") {
+          return scriptApi.updateScenes(
+            projectId.value,
+            scriptId.value,
+            step.items as SceneRef[],
+          );
+        } else {
+          return scriptApi.updateProps(
+            projectId.value,
+            scriptId.value,
+            step.items as PropRef[],
+          );
+        }
       });
       // 删除成功后更新步骤状态
       updateAssetStepStatus(stepKey, step.items);
@@ -4015,6 +4077,166 @@ export const useScriptEditStore = defineStore("scriptEdit", () => {
     await refreshResolvedAssets();
   }
 
+  // ==================== 分镜组图片上传/删除 ====================
+
+  /**
+   * 上传分镜组参考图
+   * 直接更新本地 store 中的 images 数组，上传后同步到后端
+   */
+  async function uploadShotGroupReferenceImage(
+    shotGroupId: string,
+    file: File,
+  ): Promise<void> {
+    if (!projectId.value || !scriptId.value) return;
+
+    const response = await scriptApi.uploadShotGroupImageFile(
+      projectId.value,
+      scriptId.value,
+      shotGroupId,
+      file,
+      "reference",
+    );
+
+    // 更新本地 store 中的 images 数组
+    const index = steps.value.storyboards.items.findIndex(
+      (sb) => sb.id === shotGroupId,
+    );
+    if (index !== -1) {
+      const existing = steps.value.storyboards.items[index];
+      const existingImages = existing.images || [];
+      const newImage = {
+        id: response.data.id,
+        url: response.data.url,
+        type: "reference" as const,
+        createdAt: response.data.createdAt,
+      };
+      const updated = {
+        ...existing,
+        images: [...existingImages, newImage],
+      };
+      steps.value.storyboards.items.splice(index, 1, updated);
+    }
+  }
+
+  /**
+   * 上传分镜组视频参考图
+   */
+  async function uploadShotGroupVideoReferenceImage(
+    shotGroupId: string,
+    file: File,
+  ): Promise<void> {
+    if (!projectId.value || !scriptId.value) return;
+
+    const response = await scriptApi.uploadShotGroupImageFile(
+      projectId.value,
+      scriptId.value,
+      shotGroupId,
+      file,
+      "video_reference",
+    );
+
+    const index = steps.value.storyboards.items.findIndex(
+      (sb) => sb.id === shotGroupId,
+    );
+    if (index !== -1) {
+      const existing = steps.value.storyboards.items[index];
+      const existingImages = existing.images || [];
+      const newImage = {
+        id: response.data.id,
+        url: response.data.url,
+        type: "video_reference" as const,
+        createdAt: response.data.createdAt,
+      };
+      const updated = {
+        ...existing,
+        images: [...existingImages, newImage],
+      };
+      steps.value.storyboards.items.splice(index, 1, updated);
+    }
+  }
+
+  /**
+   * 上传分镜组主图
+   */
+  async function uploadShotGroupMainImage(
+    shotGroupId: string,
+    file: File,
+  ): Promise<void> {
+    if (!projectId.value || !scriptId.value) return;
+
+    const response = await scriptApi.uploadShotGroupImageFile(
+      projectId.value,
+      scriptId.value,
+      shotGroupId,
+      file,
+      "main",
+    );
+
+    const index = steps.value.storyboards.items.findIndex(
+      (sb) => sb.id === shotGroupId,
+    );
+    if (index !== -1) {
+      const existing = steps.value.storyboards.items[index];
+      const existingImages = existing.images || [];
+      // 移除已有的 main 图片
+      const filteredImages = existingImages.filter((img) => img.type !== "main");
+      const newImage = {
+        id: response.data.id,
+        url: response.data.url,
+        type: "main" as const,
+        createdAt: response.data.createdAt,
+      };
+      const updated = {
+        ...existing,
+        images: [...filteredImages, newImage],
+        mainImageId: response.data.id,
+        mainImageKey: response.data.url,
+      };
+      steps.value.storyboards.items.splice(index, 1, updated);
+    }
+  }
+
+  /**
+   * 删除分镜组图片
+   */
+  async function deleteShotGroupImage(
+    shotGroupId: string,
+    imageId: string,
+  ): Promise<void> {
+    if (!projectId.value || !scriptId.value) return;
+
+    await scriptApi.deleteShotGroupImage(
+      projectId.value,
+      scriptId.value,
+      shotGroupId,
+      imageId,
+    );
+
+    // 更新本地 store 中的 images 数组
+    const index = steps.value.storyboards.items.findIndex(
+      (sb) => sb.id === shotGroupId,
+    );
+    if (index !== -1) {
+      const existing = steps.value.storyboards.items[index];
+      const existingImages = existing.images || [];
+      const imageToDelete = existingImages.find((img) => img.id === imageId);
+      const newImages = existingImages.filter((img) => img.id !== imageId);
+      const updates: Partial<typeof existing> = {
+        images: newImages,
+      };
+      // 如果删除的是 main 图片，同步清除 mainImageId 和 mainImageKey
+      if (imageToDelete?.type === "main") {
+        updates.mainImageId = undefined;
+        updates.mainImageKey = undefined;
+      }
+      const updated = {
+        ...existing,
+        ...updates,
+      };
+      steps.value.storyboards.items.splice(index, 1, updated);
+    }
+  }
+
   // ==================== 基础信息更新（素材库 API）====================
 
   /**
@@ -4654,6 +4876,12 @@ export const useScriptEditStore = defineStore("scriptEdit", () => {
     uploadVideoReferenceImage,
     uploadMainImage,
     deleteAssetImage,
+
+    // 分镜组图片上传/删除
+    uploadShotGroupReferenceImage,
+    uploadShotGroupVideoReferenceImage,
+    uploadShotGroupMainImage,
+    deleteShotGroupImage,
 
     // 分镜组 WebSocket 事件（重构后新增）
     subscribeToShotGroupSubjectsDetected,

@@ -20,6 +20,11 @@ import type {
   CreateAndLinkAssetResponse,
   LinkExistingAssetsResponse,
   ResolvedAssetResponse,
+  CharacterRef,
+  SceneRef,
+  PropRef,
+  ShotGroup,
+  ShotGroupSettings,
 } from "@pixaura/shared-types";
 import { ScriptContentSchema } from "@pixaura/shared-types";
 
@@ -436,6 +441,47 @@ export const scriptApi = {
   ) {
     return api.delete(
       `${BASE_URL}/${projectId}/scripts/${scriptId}/assets/${assetId}/images/${imageId}`,
+    );
+  },
+
+  // ==================== 分镜组图片上传/删除 ====================
+
+  /**
+   * 上传分镜组图片文件
+   */
+  uploadShotGroupImageFile(
+    projectId: string,
+    scriptId: string,
+    shotGroupId: string,
+    file: File,
+    imageType: "main" | "reference" | "video_reference" = "reference",
+  ) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<{
+      id: string;
+      url: string;
+      thumbnailUrl?: string;
+      type: string;
+      createdAt: string;
+    }>(
+      `${BASE_URL}/${projectId}/scripts/${scriptId}/shotGroups/${shotGroupId}/images/upload?imageType=${imageType}`,
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+  },
+
+  /**
+   * 删除分镜组图片
+   */
+  deleteShotGroupImage(
+    projectId: string,
+    scriptId: string,
+    shotGroupId: string,
+    imageId: string,
+  ) {
+    return api.delete(
+      `${BASE_URL}/${projectId}/scripts/${scriptId}/shotGroups/${shotGroupId}/images/${imageId}`,
     );
   },
 
@@ -1001,5 +1047,110 @@ export const scriptApi = {
    */
   removeBgm(projectId: string, scriptId: string, bgmId: string) {
     return api.delete(`${BASE_URL}/${projectId}/scripts/${scriptId}/bgm/${bgmId}`);
+  },
+
+  // ==================== 细粒度更新接口（竞态问题改造）====================
+
+  /**
+   * PUT /scripts/:id/characters
+   * 整段替换角色引用（走字段级合并，WS 写入的 image 字段不会被覆盖）
+   */
+  updateCharacters(
+    projectId: string,
+    scriptId: string,
+    characters: CharacterRef[],
+  ) {
+    return api.put<ScriptDetailDto>(
+      `${BASE_URL}/${projectId}/scripts/${scriptId}/characters`,
+      { characters },
+    );
+  },
+
+  /**
+   * PUT /scripts/:id/scenes
+   * 整段替换场景引用（走字段级合并）
+   */
+  updateScenes(projectId: string, scriptId: string, scenes: SceneRef[]) {
+    return api.put<ScriptDetailDto>(
+      `${BASE_URL}/${projectId}/scripts/${scriptId}/scenes`,
+      { scenes },
+    );
+  },
+
+  /**
+   * PUT /scripts/:id/props
+   * 整段替换道具引用（走字段级合并）
+   */
+  updateProps(projectId: string, scriptId: string, props: PropRef[]) {
+    return api.put<ScriptDetailDto>(
+      `${BASE_URL}/${projectId}/scripts/${scriptId}/props`,
+      { props },
+    );
+  },
+
+  /**
+   * PATCH /scripts/:id/shot-groups/:groupId
+   * 部分更新分镜组（字段级合并）
+   */
+  updateShotGroup(
+    projectId: string,
+    scriptId: string,
+    groupId: string,
+    data: Partial<ShotGroup>,
+  ) {
+    return api.patch<ScriptDetailDto>(
+      `${BASE_URL}/${projectId}/scripts/${scriptId}/shot-groups/${groupId}`,
+      data,
+    );
+  },
+
+  /**
+   * PUT /scripts/:id/shot-groups
+   * 整段替换分镜组列表（字段级合并）
+   */
+  updateShotGroups(
+    projectId: string,
+    scriptId: string,
+    shotGroups: ShotGroup[],
+  ) {
+    return api.put<ScriptDetailDto>(
+      `${BASE_URL}/${projectId}/scripts/${scriptId}/shot-groups`,
+      { shotGroups },
+    );
+  },
+
+  /**
+   * PUT /scripts/:id/creation-settings
+   * 更新创作设置（分辨率、类型、旁白音色等）
+   */
+  updateCreationSettings(
+    projectId: string,
+    scriptId: string,
+    data: {
+      resolution?: string;
+      genre?: string;
+      narrationVoiceId?: string;
+      narrationInstructions?: string;
+    },
+  ) {
+    return api.put<ScriptDetailDto>(
+      `${BASE_URL}/${projectId}/scripts/${scriptId}/creation-settings`,
+      data,
+    );
+  },
+
+  /**
+   * PUT /scripts/:id/storyboard-settings
+   * 更新分镜步骤默认模型配置
+   */
+  updateStoryboardSettings(
+    projectId: string,
+    scriptId: string,
+    shotGroupSettings?: ShotGroupSettings,
+  ) {
+    return api.put<ScriptDetailDto>(
+      `${BASE_URL}/${projectId}/scripts/${scriptId}/storyboard-settings`,
+      { shotGroupSettings },
+    );
   },
 };

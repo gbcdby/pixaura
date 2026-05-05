@@ -275,6 +275,13 @@ export interface StoryboardParseProgressWsData {
     message?: string;
   };
   timestamp: string;
+  /** 分批解析信息（可选，仅在分批模式下存在） */
+  batchInfo?: {
+    currentBatch: number;
+    totalBatches: number;
+    completedShots: number;
+    estimatedTotalShots?: number;
+  };
 }
 
 /**
@@ -547,6 +554,8 @@ export interface AssetStoryboardUpdateWsData {
   shotType?: string;
   /** 拍摄角度 */
   cameraAngle?: string;
+  /** 运镜方式 */
+  cameraMovement?: string;
   /** 时长（秒） */
   duration?: number;
   createdAt: string;

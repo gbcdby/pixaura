@@ -1154,6 +1154,7 @@ function handleVoicePopoverClose(visible: boolean) {
     border-radius: 10px;
     overflow: hidden;
     border: 1px solid #f0f0f0;
+    flex-shrink: 0;
 
     // n-image 铺满容器
     :deep(.reference-image) {

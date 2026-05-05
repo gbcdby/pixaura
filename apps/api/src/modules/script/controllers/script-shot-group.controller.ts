@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   Query,
@@ -234,6 +235,70 @@ export class ScriptShotGroupController {
       scriptId,
       shotGroupId,
       dto,
+    );
+  }
+
+  // ========== 分镜组图片上传/删除 ==========
+
+  @ApiOperation({ summary: "上传分镜组图片" })
+  @ApiParam({ name: "projectId", description: "项目ID" })
+  @ApiParam({ name: "scriptId", description: "剧本ID" })
+  @ApiParam({ name: "shotGroupId", description: "分镜组ID" })
+  @Post(":shotGroupId/images/upload")
+  @UseGuards(ProjectGuard)
+  @HttpCode(HttpStatus.OK)
+  async uploadShotGroupImage(
+    @Req() req: FastifyRequest & { user: { userId: string } },
+    @Param("projectId") projectId: string,
+    @Param("scriptId", ParseUUIDPipe) scriptId: string,
+    @Param("shotGroupId") shotGroupId: string,
+    @Query("imageType") imageType?: string,
+  ) {
+    const file = await req.file({ limits: { fileSize: 5 * 1024 * 1024 } });
+    if (!file) {
+      throw new BadRequestException("请选择要上传的文件");
+    }
+
+    // 校验文件类型
+    const allowedMimes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    if (!allowedMimes.includes(file.mimetype)) {
+      throw new BadRequestException("仅支持 jpg/jpeg/png/webp 格式");
+    }
+
+    const buffer = await file.toBuffer();
+    return this.shotGroupService.uploadShotGroupImage(
+      req.user.userId,
+      projectId,
+      scriptId,
+      shotGroupId,
+      buffer,
+      file.filename || "upload.jpg",
+      file.mimetype,
+      imageType,
+    );
+  }
+
+  @ApiOperation({ summary: "删除分镜组图片" })
+  @ApiParam({ name: "projectId", description: "项目ID" })
+  @ApiParam({ name: "scriptId", description: "剧本ID" })
+  @ApiParam({ name: "shotGroupId", description: "分镜组ID" })
+  @ApiParam({ name: "imageId", description: "图片ID" })
+  @Delete(":shotGroupId/images/:imageId")
+  @UseGuards(ProjectGuard)
+  @HttpCode(HttpStatus.OK)
+  async deleteShotGroupImage(
+    @Request() req: { user: { userId: string } },
+    @Param("projectId") projectId: string,
+    @Param("scriptId", ParseUUIDPipe) scriptId: string,
+    @Param("shotGroupId") shotGroupId: string,
+    @Param("imageId") imageId: string,
+  ) {
+    return this.shotGroupService.deleteShotGroupImage(
+      req.user.userId,
+      projectId,
+      scriptId,
+      shotGroupId,
+      imageId,
     );
   }
 }

@@ -18,8 +18,11 @@ import {
   buildSceneParseUserPrompt,
   PROP_PARSE_SYSTEM_PROMPT,
   buildPropParseUserPrompt,
-  STORYBOARD_PARSE_SYSTEM_PROMPT,
-  buildStoryboardParseUserPrompt,
+  // 分批解析提示词
+  STORYBOARD_OUTLINE_SYSTEM_PROMPT,
+  buildStoryboardOutlineUserPrompt,
+  STORYBOARD_BATCH_PARSE_SYSTEM_PROMPT,
+  buildStoryboardBatchParseUserPrompt,
 } from "../../../prompts";
 import { calculateAICost } from "../../../common/utils/ai-cost.util";
 import { safeJsonParse } from "../../../common/utils/json.util";
@@ -41,24 +44,32 @@ import type {
   AssetPropUpdateWsData,
   AssetStoryboardUpdateWsData,
 } from "@pixaura/shared-types";
-import { z } from "zod";
+import {
+  CharacterParseResultSchema,
+  SceneParseResultSchema,
+  PropParseResultSchema,
+  StoryboardOutlineSchema,
+  StoryboardBatchParseResultSchema,
+} from "../schemas/script-parse.schema";
 import { TextGenQuotaService } from "../../billing/services/text-gen-quota.service";
 
 /**
  * 格式化分镜描述为标准格式
- * 确保 description 符合：【时间】【景别】脚本描述
+ * 确保 description 符合：【时间】【景别】【运镜】脚本描述
  *
  * @param description 原始描述内容
  * @param shotType 景别（可选）
  * @param timeOfDay 时间（可选，从场景 setting 获取）
+ * @param cameraMovement 运镜方式（可选）
  * @returns 格式化后的标准描述
  */
 function formatStoryboardDescription(
   description: string,
   shotType?: string,
   timeOfDay?: string,
+  cameraMovement?: string,
 ): string {
-  // 如果已是标准格式，直接返回
+  // 如果已是标准格式（至少包含时间和景别），直接返回
   if (description.match(/^【.+】【.+】/)) {
     return description;
   }
@@ -84,7 +95,11 @@ function formatStoryboardDescription(
   // 构建标准格式
   const time = timeMap[timeOfDay || "unknown"] || "白天";
   const shot = shotMap[shotType || ""] || shotType || "中景";
+  const movement = cameraMovement?.trim();
 
+  if (movement) {
+    return `【${time}】【${shot}】【${movement}】${description}`;
+  }
   return `【${time}】【${shot}】${description}`;
 }
 
@@ -92,7 +107,12 @@ function formatStoryboardDescription(
  * 剧本解析 Worker
  * 处理从 txt 内容提取结构化剧本数据的 AI 任务
  */
-@Processor("script-ai-parse", { concurrency: 3 })
+@Processor("script-ai-parse", {
+  concurrency: 3,
+  lockDuration: 300000, // 任务锁定 5 分钟，防止被其他 worker 抢占
+  stalledInterval: 60000, // 每分钟检查一次 stalled 任务
+  maxStalledCount: 3, // 最多允许 3 次 stalled 后重试
+})
 export class ScriptParseWorker extends WorkerHost {
   private readonly logger = new Logger(ScriptParseWorker.name);
 
@@ -535,7 +555,7 @@ export class ScriptParseWorker extends WorkerHost {
         scriptId: script.id,
         status: "processing",
         progress: 10,
-        message: "正在解析分镜...",
+        message: "正在准备分镜解析...",
       });
 
       // 3. 检查内容长度
@@ -576,12 +596,17 @@ export class ScriptParseWorker extends WorkerHost {
         taskId,
       );
 
+      // 检查解析结果是否为空
+      if (storyboards.length === 0) {
+        throw new Error("分镜解析未返回任何结果");
+      }
+
       // 推送解析中进度
       await this.broadcastStoryboardParseProgress({
         taskId,
         scriptId: script.id,
         status: "processing",
-        progress: 60,
+        progress: 90,
         message: "正在保存分镜结果...",
       });
 
@@ -701,95 +726,7 @@ export class ScriptParseWorker extends WorkerHost {
     }
   }
 
-  // ==================== 分段解析 Schema 定义 ====================
-
-  /** 角色解析结果 Schema */
-  private readonly CharacterParseResultSchema = z.object({
-    characters: z.array(
-      z.object({
-        name: z.string(),
-        description: z.string().optional(),
-        personality: z.string().optional(), // 性格特点
-        age: z.string().optional(), // 年龄（自由文本）
-        occupation: z.string().optional(), // 职业
-        importance: z.enum(["protagonist", "supporting", "minor"]).optional(),
-        gender: z.enum(["male", "female", "unknown"]).optional(),
-      }),
-    ),
-  });
-
-  /** 场景解析结果 Schema */
-  private readonly SceneParseResultSchema = z.object({
-    scenes: z.array(
-      z.object({
-        name: z.string(),
-        description: z.string().optional(),
-        setting: z
-          .object({
-            timeOfDay: z
-              .enum(["morning", "afternoon", "evening", "night", "unknown"])
-              .optional(),
-            weather: z
-              .enum(["clear", "cloudy", "rainy", "snowy", "foggy", "unknown"])
-              .optional(),
-          })
-          .optional(),
-      }),
-    ),
-  });
-
-  /** 道具解析结果 Schema */
-  private readonly PropParseResultSchema = z.object({
-    props: z.array(
-      z.object({
-        name: z.string(),
-        description: z.string().optional(),
-        category: z
-          .enum(["props", "costume", "makeup", "equipment"])
-          .optional(),
-      }),
-    ),
-  });
-
-  /** 分镜解析结果 Schema */
-  private readonly StoryboardParseResultSchema = z.object({
-    storyboards: z.array(
-      z.object({
-        sequenceNumber: z.number(),
-        sceneName: z.string(),
-        characterNames: z.array(z.string()).default([]),
-        propNames: z.array(z.string()).default([]),
-        // dialogues 使用 passthrough 允许额外字段，配合宽松验证
-        // 字段名容错在转换逻辑中处理
-        dialogues: z
-          .array(
-            z
-              .object({
-                // 主要字段名（Prompt 要求的标准格式）
-                speakerName: z.string().optional(),
-                content: z.string().optional(),
-                instruction: z
-                  .enum(["normal", "emotional", "whisper", "shout"])
-                  .optional(),
-                actions: z.array(z.string()).optional(), // 动作描述数组
-                // 容错字段名（AI 可能返回的其他格式）
-                speaker: z.string().optional(),
-                name: z.string().optional(),
-                text: z.string().optional(),
-                dialogue: z.string().optional(),
-                emotion: z.string().optional(),
-                mood: z.string().optional(),
-              })
-              .passthrough(), // 允许其他未知字段
-          )
-          .default([]), // 确保 dialogues 有默认空数组
-        description: z.string(),
-        shotType: z.string().optional(),
-        cameraAngle: z.string().optional(),
-        duration: z.number().optional(),
-      }),
-    ),
-  });
+  // ==================== Zod Schema 已从 ../schemas/script-parse.schema.ts 共享导入 ====================
 
   /**
    * 分段解析流程
@@ -864,6 +801,7 @@ export class ScriptParseWorker extends WorkerHost {
       description: string;
       shotType?: string;
       cameraAngle?: string;
+      cameraMovement?: string;
       duration: number;
       createdAt: string;
       updatedAt: string;
@@ -935,6 +873,7 @@ export class ScriptParseWorker extends WorkerHost {
       description: string;
       shotType?: string;
       cameraAngle?: string;
+      cameraMovement?: string;
       duration: number;
       createdAt: string;
       updatedAt: string;
@@ -1032,7 +971,7 @@ export class ScriptParseWorker extends WorkerHost {
       // 使用 JSON 修复工具解析结果
       const parseResult = parseAndValidateJson(
         preprocessedText,
-        this.CharacterParseResultSchema,
+        CharacterParseResultSchema,
         ["characters"],
       );
 
@@ -1221,12 +1160,20 @@ export class ScriptParseWorker extends WorkerHost {
 
       const parseResult = parseAndValidateJson(
         result.text,
-        this.SceneParseResultSchema,
+        SceneParseResultSchema,
         ["scenes"],
       );
 
       if (!parseResult.success || !parseResult.data) {
         this.logger.error(`场景解析失败: ${parseResult.error}`);
+        if (parseResult.repairDetails) {
+          this.logger.error(`场景解析详细错误: ${parseResult.repairDetails}`);
+        }
+        const previewText =
+          result.text.length > 800
+            ? result.text.slice(0, 800) + "..."
+            : result.text;
+        this.logger.error(`场景解析 AI 原始返回: ${previewText}`);
         return [];
       }
 
@@ -1335,12 +1282,20 @@ export class ScriptParseWorker extends WorkerHost {
 
       const parseResult = parseAndValidateJson(
         result.text,
-        this.PropParseResultSchema,
+        PropParseResultSchema,
         ["props"],
       );
 
       if (!parseResult.success || !parseResult.data) {
         this.logger.error(`道具解析失败: ${parseResult.error}`);
+        if (parseResult.repairDetails) {
+          this.logger.error(`道具解析详细错误: ${parseResult.repairDetails}`);
+        }
+        const previewText =
+          result.text.length > 800
+            ? result.text.slice(0, 800) + "..."
+            : result.text;
+        this.logger.error(`道具解析 AI 原始返回: ${previewText}`);
         return [];
       }
 
@@ -1459,33 +1414,154 @@ export class ScriptParseWorker extends WorkerHost {
       const sceneNames = Array.from(sceneMap.keys());
       const propNames = Array.from(propMap.keys());
 
-      const result = await this.aiProvider.generateText(
-        {
-          prompt: buildStoryboardParseUserPrompt(
+      // 1. 检测剧本类型并准备批次
+      const isFormatted = this.detectFormattedScript(content);
+      this.logger.log(
+        `剧本类型检测: ${isFormatted ? "格式化剧本" : "非格式化剧本"}, taskId=${taskId}`,
+      );
+
+      let batches: Array<{ batchIndex: number; rawText: string }> = [];
+
+      if (isFormatted) {
+        const sceneBatches = this.splitScriptByScenes(content, 3);
+        batches = sceneBatches.map((b) => ({
+          batchIndex: b.batchIndex,
+          rawText: b.rawText,
+        }));
+      } else {
+        const outline = await this.extractStoryboardOutline(content, modelId);
+        if (outline.length === 0) {
+          this.logger.warn(`大纲提取失败，回退到单批次解析: ${taskId}`);
+          batches = [{ batchIndex: 0, rawText: content }];
+        } else {
+          const outlineBatches = this.splitScriptByOutline(
             content,
-            characterNames,
-            sceneNames,
-            propNames,
-          ),
-          systemPrompt: STORYBOARD_PARSE_SYSTEM_PROMPT,
-          temperature: 0.3,
-          maxTokens: 8000,
-        },
-        modelId,
-      );
+            outline,
+            10,
+          );
+          batches = outlineBatches.map((b) => ({
+            batchIndex: b.batchIndex,
+            rawText: b.rawText,
+          }));
+        }
+      }
 
-      const parseResult = parseAndValidateJson(
-        result.text,
-        this.StoryboardParseResultSchema,
-        ["storyboards"],
-      );
-
-      if (!parseResult.success || !parseResult.data) {
-        this.logger.error(`分镜解析失败: ${parseResult.error}`);
+      if (batches.length === 0) {
+        this.logger.error(`批次划分失败，无可用批次: ${taskId}`);
         return [];
       }
 
-      const storyboards = parseResult.data.storyboards;
+      this.logger.log(
+        `分镜解析批次划分完成: 共 ${batches.length} 批, taskId=${taskId}`,
+      );
+
+      // 2. 并行解析各批次（最多 10 个并发）
+      const CONCURRENT_BATCHES = 10;
+      const batchResults = new Array<
+        Array<{
+          sequenceNumber: number;
+          sceneName: string;
+          characterNames: string[];
+          propNames: string[];
+          description: string;
+          shotType?: string;
+          cameraAngle?: string;
+          duration?: number;
+          dialogues: Array<Record<string, unknown>>;
+        }> | null
+      >(batches.length).fill(null);
+      const failedBatches: number[] = [];
+      let totalCompletedShots = 0;
+      let completedCount = 0;
+
+      const processBatch = async (batchIdx: number) => {
+        try {
+          const batch = batches[batchIdx];
+          const sceneNamesInBatch =
+            "sceneNames" in batch ? (batch as { sceneNames: string[] }).sceneNames : undefined;
+
+          // 推送批次进度
+          await this.broadcastStoryboardBatchProgress({
+            taskId,
+            scriptId,
+            status: "processing",
+            progress: Math.round((completedCount / batches.length) * 70) + 15,
+            message: `正在解析第 ${batchIdx + 1}/${batches.length} 批分镜（已解析 ${totalCompletedShots} 个）...`,
+            currentBatch: batchIdx + 1,
+            totalBatches: batches.length,
+            completedShots: totalCompletedShots,
+          });
+
+          // 解析单批次（带自动降级）
+          const batchStoryboards = await this.parseBatchWithSplitFallback(
+            batch.rawText,
+            batchIdx,
+            modelId,
+            characterMap,
+            sceneMap,
+            propMap,
+            sceneSettingMap,
+            isFormatted,
+            taskId,
+            0,
+            sceneNamesInBatch,
+          );
+
+          if (batchStoryboards.length > 0) {
+            batchResults[batchIdx] = batchStoryboards;
+            totalCompletedShots += batchStoryboards.length;
+            completedCount++;
+            this.logger.log(
+              `批次 ${batchIdx + 1} 解析完成: ${batchStoryboards.length} 个分镜`,
+            );
+          } else {
+            this.logger.warn(`批次 ${batchIdx + 1} 解析失败，已跳过`);
+            failedBatches.push(batchIdx);
+            completedCount++;
+          }
+        } catch (batchError) {
+          this.logger.error(
+            `批次 ${batchIdx + 1} 处理异常: ${(batchError as Error).message}`,
+          );
+          failedBatches.push(batchIdx);
+          completedCount++;
+        }
+      };
+
+      // 分 chunk 并发执行（每 chunk 最多 CONCURRENT_BATCHES 个）
+      for (let i = 0; i < batches.length; i += CONCURRENT_BATCHES) {
+        const chunkSize = Math.min(CONCURRENT_BATCHES, batches.length - i);
+        const promises: Promise<void>[] = [];
+        for (let j = 0; j < chunkSize; j++) {
+          promises.push(processBatch(i + j));
+        }
+        await Promise.all(promises);
+      }
+
+      // 3. 合并结果
+      const validBatchResults = batchResults.filter(
+        (r): r is NonNullable<typeof r> => r !== null,
+      );
+      if (validBatchResults.length === 0) {
+        this.logger.error(`所有批次解析失败: ${taskId}`);
+        return [];
+      }
+
+      const mergedStoryboards = this.mergeBatchResults(validBatchResults);
+      this.logger.log(
+        `分镜合并完成: 共 ${mergedStoryboards.length} 个分镜, taskId=${taskId}`,
+      );
+
+      if (failedBatches.length > 0) {
+        this.logger.warn(
+          `部分批次解析失败: ${failedBatches
+            .map((i) => i + 1)
+            .join(", ")}，已保留 ${validBatchResults.length}/${batches.length} 批次的结果`,
+        );
+      }
+
+      // 4. 处理合并后的分镜数据（复用现有逻辑）
+      const storyboards = mergedStoryboards;
       const results: Array<{
         id: string;
         sequenceNumber: number;
@@ -1503,6 +1579,7 @@ export class ScriptParseWorker extends WorkerHost {
         description: string;
         shotType?: string;
         cameraAngle?: string;
+        cameraMovement?: string;
         duration: number;
         createdAt: string;
         updatedAt: string;
@@ -1695,11 +1772,12 @@ export class ScriptParseWorker extends WorkerHost {
           }
         }
 
-        // 格式化分镜描述为标准格式：【时间】【景别】脚本描述
+        // 格式化分镜描述为标准格式：【时间】【景别】【运镜】脚本描述
         const formattedDescription = formatStoryboardDescription(
           sb.description,
           sb.shotType,
           sceneSetting?.timeOfDay,
+          sb.cameraMovement,
         );
 
         // 记录格式化结果
@@ -1719,6 +1797,7 @@ export class ScriptParseWorker extends WorkerHost {
           description: formattedDescription,
           shotType: sb.shotType,
           cameraAngle: sb.cameraAngle,
+          // cameraMovement 已融入 description，不再单独保存
           duration: sb.duration || 5,
           createdAt: now,
           updatedAt: now,
@@ -1740,6 +1819,7 @@ export class ScriptParseWorker extends WorkerHost {
           description: formattedDescription,
           shotType: sb.shotType,
           cameraAngle: sb.cameraAngle,
+          // cameraMovement 已融入 description，不再单独推送
           duration: sb.duration,
           createdAt: now,
         });
@@ -1831,6 +1911,691 @@ export class ScriptParseWorker extends WorkerHost {
     } catch (error) {
       this.logger.error(`分镜解析异常: ${(error as Error).message}`);
       return [];
+    }
+  }
+
+  // ==================== 分批解析辅助方法 ====================
+
+  /**
+   * 检测剧本是否为格式化剧本（包含 § 场景标记）
+   * @param content 剧本文本
+   * @returns 是否为格式化剧本
+   */
+  private detectFormattedScript(content: string): boolean {
+    // 检查是否存在 § 开头的场景标记行
+    return /^\s*§\s+/m.test(content);
+  }
+
+  /**
+   * 按场景分割格式化剧本为批次
+   * @param content 格式化剧本文本
+   * @param maxScenesPerBatch 每批次最大场景数（默认 3）
+   * @returns 批次数组，每个元素包含该批次的完整剧本片段
+   */
+  private splitScriptByScenes(
+    content: string,
+    maxScenesPerBatch: number = 3,
+  ): Array<{ batchIndex: number; rawText: string }> {
+    // 按 § 标记分割场景（保留 § 符号）
+    const sceneRegex = /(?=^\s*§\s+)/m;
+    const scenes = content
+      .split(sceneRegex)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    const batches: Array<{ batchIndex: number; rawText: string }> = [];
+
+    for (let i = 0; i < scenes.length; i += maxScenesPerBatch) {
+      const batchScenes = scenes.slice(i, i + maxScenesPerBatch);
+      batches.push({
+        batchIndex: batches.length,
+        rawText: batchScenes.join("\n\n"),
+      });
+    }
+
+    return batches;
+  }
+
+  /**
+   * 提取剧本大纲（用于非格式化剧本）
+   * @param content 剧本文本
+   * @param modelId 模型 ID
+   * @returns 大纲数组，每个元素包含场景摘要信息
+   */
+  private async extractStoryboardOutline(
+    content: string,
+    modelId: string,
+  ): Promise<
+    Array<{
+      sceneIndex: number;
+      sceneName: string;
+      summary: string;
+      estimatedShots: number;
+    }>
+  > {
+    try {
+      const result = await this.aiProvider.generateText(
+        {
+          prompt: buildStoryboardOutlineUserPrompt(content),
+          systemPrompt: STORYBOARD_OUTLINE_SYSTEM_PROMPT,
+          temperature: 0.3,
+          maxTokens: 4000,
+        },
+        modelId,
+      );
+
+      const parseResult = parseAndValidateJson(
+        result.text,
+        StoryboardOutlineSchema,
+        ["scenes"],
+      );
+
+      if (!parseResult.success || !parseResult.data) {
+        this.logger.error(`大纲提取失败: ${parseResult.error}`);
+        if (parseResult.repairDetails) {
+          this.logger.error(`大纲提取详细错误: ${parseResult.repairDetails}`);
+        }
+        const previewText =
+          result.text.length > 800
+            ? result.text.slice(0, 800) + "..."
+            : result.text;
+        this.logger.error(`大纲提取 AI 原始返回: ${previewText}`);
+        return [];
+      }
+
+      return parseResult.data.scenes;
+    } catch (error) {
+      this.logger.error(`大纲提取异常: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  /**
+   * 按大纲批次分割非格式化剧本
+   * 使用 anchorText 在原文中定位场景边界，实现真正的文本切分
+   * @param content 原始剧本文本
+   * @param outline 大纲数组（含 anchorText）
+   * @param maxShotsPerBatch 每批次最大预估分镜数（默认 10）
+   * @returns 批次数组，每个元素包含该批次对应的剧本片段和场景名称列表
+   */
+  private splitScriptByOutline(
+    content: string,
+    outline: Array<{
+      sceneIndex: number;
+      sceneName: string;
+      summary: string;
+      estimatedShots: number;
+      anchorText?: string;
+    }>,
+    maxShotsPerBatch: number = 10,
+  ): Array<{ batchIndex: number; rawText: string; sceneNames: string[] }> {
+    interface SceneRange {
+      start: number;
+      end: number;
+      estimatedShots: number;
+      sceneName: string;
+    }
+
+    // 1. 用 anchorText 定位每个场景在 content 中的位置
+    const sceneRanges: SceneRange[] = [];
+
+    for (let i = 0; i < outline.length; i++) {
+      const scene = outline[i];
+      const anchor = scene.anchorText?.trim();
+
+      let startPos = -1;
+
+      if (anchor && anchor.length >= 5) {
+        // 精确匹配：先尝试完整 anchorText
+        startPos = content.indexOf(anchor);
+
+        // 如果失败，尝试取前 30 字模糊匹配
+        if (startPos === -1 && anchor.length > 30) {
+          const shortAnchor = anchor.slice(0, 30);
+          startPos = content.indexOf(shortAnchor);
+        }
+
+        // 再失败，尝试取前 15 字
+        if (startPos === -1 && anchor.length > 15) {
+          const miniAnchor = anchor.slice(0, 15);
+          startPos = content.indexOf(miniAnchor);
+        }
+      }
+
+      if (startPos === -1) {
+        // fallback: 按场景索引估算目标位置，然后在附近找自然段落边界切分
+        const targetPos = Math.floor((content.length / outline.length) * i);
+        // 在目标位置前后 300 字范围内寻找最近的空行（\n\n）作为切分点
+        const searchRange = 300;
+        const searchStart = Math.max(0, targetPos - searchRange);
+        const searchEnd = Math.min(content.length, targetPos + searchRange);
+        const segment = content.slice(searchStart, searchEnd);
+
+        // 找距离 targetPos 最近的空行
+        let bestSplit = -1;
+        let bestDistance = Infinity;
+        const doubleNewlineRegex = /\n\s*\n/g;
+        let match: RegExpExecArray | null;
+        while ((match = doubleNewlineRegex.exec(segment)) !== null) {
+          const absolutePos = searchStart + match.index;
+          const distance = Math.abs(absolutePos - targetPos);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestSplit = absolutePos;
+          }
+        }
+
+        // 如果找不到空行，退而寻找最近的单换行符
+        if (bestSplit === -1) {
+          const singleNewlineRegex = /\n/g;
+          while ((match = singleNewlineRegex.exec(segment)) !== null) {
+            const absolutePos = searchStart + match.index;
+            const distance = Math.abs(absolutePos - targetPos);
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              bestSplit = absolutePos;
+            }
+          }
+        }
+
+        startPos = bestSplit !== -1 ? bestSplit : targetPos;
+        this.logger.warn(
+          `场景 "${scene.sceneName}" anchorText 定位失败，使用段落边界估算: startPos=${startPos}`,
+        );
+      } else {
+        this.logger.debug(
+          `场景 "${scene.sceneName}" anchorText 定位成功: startPos=${startPos}`,
+        );
+      }
+
+      sceneRanges.push({
+        start: startPos,
+        end: -1,
+        estimatedShots: scene.estimatedShots,
+        sceneName: scene.sceneName,
+      });
+    }
+
+    // 按 start 排序（防止 AI 返回的顺序与原文不一致）
+    sceneRanges.sort((a, b) => a.start - b.start);
+
+    // 确定每个场景的 end 位置（下一场景的 start，最后一场景到文末）
+    for (let i = 0; i < sceneRanges.length; i++) {
+      if (i < sceneRanges.length - 1) {
+        sceneRanges[i].end = sceneRanges[i + 1].start;
+      } else {
+        sceneRanges[i].end = content.length;
+      }
+    }
+
+    // 2. 按 estimatedShots 合并场景为批次
+    const batches: Array<{
+      batchIndex: number;
+      rawText: string;
+      sceneNames: string[];
+    }> = [];
+    let currentBatchScenes: SceneRange[] = [];
+    let currentBatchShots = 0;
+
+    for (let i = 0; i < sceneRanges.length; i++) {
+      currentBatchScenes.push(sceneRanges[i]);
+      currentBatchShots += sceneRanges[i].estimatedShots;
+
+      // 当累积预估分镜数达到阈值，或已是最后一场景时，形成一批
+      if (currentBatchShots >= maxShotsPerBatch || i === sceneRanges.length - 1) {
+        const batchStart = currentBatchScenes[0].start;
+        const batchEnd = currentBatchScenes[currentBatchScenes.length - 1].end;
+        const batchText = content.slice(batchStart, batchEnd);
+
+        batches.push({
+          batchIndex: batches.length,
+          rawText: batchText,
+          sceneNames: currentBatchScenes.map((s) => s.sceneName),
+        });
+
+        currentBatchScenes = [];
+        currentBatchShots = 0;
+      }
+    }
+
+    // 兜底：如果没有任何批次，返回全文作为单一批次
+    if (batches.length === 0 && outline.length > 0) {
+      batches.push({
+        batchIndex: 0,
+        rawText: content,
+        sceneNames: outline.map((s) => s.sceneName),
+      });
+    }
+
+    this.logger.log(
+      `剧本切分完成: ${outline.length} 个场景 → ${batches.length} 个批次`,
+    );
+    for (const b of batches) {
+      this.logger.log(
+        `  批次 ${b.batchIndex + 1}: 场景=[${b.sceneNames.join(", ")}], 文本长度=${b.rawText.length}`,
+      );
+    }
+
+    return batches;
+  }
+
+  /**
+   * 单批次分镜解析
+   * @param batchText 该批次的剧本文本
+   * @param batchIndex 批次索引（从 0 开始）
+   * @param totalBatches 总批次数
+   * @param modelId 模型 ID
+   * @param characterMap 角色名称到 refId 的映射
+   * @param sceneMap 场景名称到 refId 的映射
+   * @param propMap 道具名称到 refId 的映射
+   * @param isFormatted 是否为格式化剧本
+   * @param taskId 任务 ID（用于日志）
+   * @returns 该批次解析出的分镜数组（sequenceNumber 为批次内局部编号）
+   */
+  private async parseStoryboardBatch(
+    batchText: string,
+    batchIndex: number,
+    totalBatches: number,
+    modelId: string,
+    characterMap: Map<string, string>,
+    sceneMap: Map<string, string>,
+    propMap: Map<string, string>,
+    isFormatted: boolean,
+    taskId: string,
+    sceneNamesInBatch?: string[],
+  ): Promise<
+    Array<{
+      sequenceNumber: number;
+      sceneName: string;
+      characterNames: string[];
+      propNames: string[];
+      description: string;
+      shotType?: string;
+      cameraAngle?: string;
+      duration?: number;
+      dialogues: Array<Record<string, unknown>>;
+    }>
+  > {
+    try {
+      const characterNames = Array.from(characterMap.keys());
+      const sceneNames = Array.from(sceneMap.keys());
+      const propNames = Array.from(propMap.keys());
+
+      const result = await this.aiProvider.generateText(
+        {
+          prompt: buildStoryboardBatchParseUserPrompt({
+            batchText,
+            batchIndex,
+            totalBatches,
+            characterNames,
+            sceneNames,
+            propNames,
+            isFormatted,
+            sceneNamesInBatch,
+          }),
+          systemPrompt: STORYBOARD_BATCH_PARSE_SYSTEM_PROMPT,
+          temperature: 0.3,
+          maxTokens: 8000,
+        },
+        modelId,
+      );
+
+      const parseResult = parseAndValidateJson(
+        result.text,
+        StoryboardBatchParseResultSchema,
+        ["storyboards"],
+      );
+
+      if (!parseResult.success || !parseResult.data) {
+        this.logger.error(
+          `批次 ${batchIndex + 1} 解析失败: ${parseResult.error}`,
+        );
+        // 打印详细校验错误和 AI 返回文本，便于排查问题
+        if (parseResult.repairDetails) {
+          this.logger.error(
+            `批次 ${batchIndex + 1} 详细错误: ${parseResult.repairDetails}`,
+          );
+        }
+        const previewText =
+          result.text.length > 800
+            ? result.text.slice(0, 800) + "..."
+            : result.text;
+        this.logger.error(
+          `批次 ${batchIndex + 1} AI 原始返回: ${previewText}`,
+        );
+        return [];
+      }
+
+      // 确保返回的分镜数据有完整的默认值
+      return parseResult.data.storyboards.map((sb) => ({
+        ...sb,
+        characterNames: sb.characterNames || [],
+        propNames: sb.propNames || [],
+        dialogues: sb.dialogues || [],
+      }));
+    } catch (error) {
+      this.logger.error(
+        `批次 ${batchIndex + 1} 解析异常: ${(error as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * 合并多批次分镜结果并重新全局编号
+   * @param batchResults 各批次结果数组
+   * @returns 合并后的分镜数组，sequenceNumber 为全局连续编号
+   */
+  private mergeBatchResults(
+    batchResults: Array<
+      Array<{
+        sequenceNumber: number;
+        sceneName: string;
+        characterNames?: string[];
+        propNames?: string[];
+        description: string;
+        shotType?: string;
+        cameraAngle?: string;
+        cameraMovement?: string;
+        duration?: number;
+        dialogues?: Array<Record<string, unknown>>;
+      }>
+    >,
+  ): Array<{
+    sequenceNumber: number;
+    sceneName: string;
+    characterNames: string[];
+    propNames: string[];
+    description: string;
+    shotType?: string;
+    cameraAngle?: string;
+    cameraMovement?: string;
+    duration?: number;
+    dialogues: Array<Record<string, unknown>>;
+  }> {
+    const merged: Array<{
+      sequenceNumber: number;
+      sceneName: string;
+      characterNames: string[];
+      propNames: string[];
+      description: string;
+      shotType?: string;
+      cameraAngle?: string;
+      cameraMovement?: string;
+      duration?: number;
+      dialogues: Array<Record<string, unknown>>;
+    }> = [];
+
+    let globalSequence = 1;
+
+    for (const batch of batchResults) {
+      // 按批次内顺序追加，重新分配全局编号
+      for (const sb of batch) {
+        merged.push({
+          ...sb,
+          sequenceNumber: globalSequence++,
+          characterNames: sb.characterNames || [],
+          propNames: sb.propNames || [],
+          dialogues: sb.dialogues || [],
+        });
+      }
+    }
+
+    this.logger.log(
+      `全局编号完成: 共 ${merged.length} 个分镜（来自 ${batchResults.length} 个批次）`,
+    );
+
+    return merged;
+  }
+
+  /**
+   * 自动分批降级策略：当批次解析失败时，将批次拆分为更小的子批次
+   * @param batchText 原始批次文本
+   * @param batchIndex 批次索引
+   * @param modelId 模型 ID
+   * @param characterMap 角色映射
+   * @param sceneMap 场景映射
+   * @param propMap 道具映射
+   * @param sceneSettingMap 场景设置映射
+   * @param isFormatted 是否为格式化剧本
+   * @param taskId 任务 ID
+   * @param retryCount 当前重试次数（默认 0）
+   * @returns 解析结果，若彻底失败则返回空数组
+   */
+  private async parseBatchWithSplitFallback(
+    batchText: string,
+    batchIndex: number,
+    modelId: string,
+    characterMap: Map<string, string>,
+    sceneMap: Map<string, string>,
+    propMap: Map<string, string>,
+    sceneSettingMap: Map<string, { timeOfDay?: string; weather?: string }>,
+    isFormatted: boolean,
+    taskId: string,
+    retryCount: number = 0,
+    sceneNamesInBatch?: string[],
+  ): Promise<
+    Array<{
+      sequenceNumber: number;
+      sceneName: string;
+      characterNames: string[];
+      propNames: string[];
+      description: string;
+      shotType?: string;
+      cameraAngle?: string;
+      duration?: number;
+      dialogues: Array<Record<string, unknown>>;
+    }>
+  > {
+    const maxRetry = 2; // 最多再拆分 2 次（即最多 4 级拆分）
+
+    // 1. 尝试直接解析当前批次
+    const totalBatches = 1; // 降级拆分时不关心总批次数
+    const result = await this.parseStoryboardBatch(
+      batchText,
+      batchIndex,
+      totalBatches,
+      modelId,
+      characterMap,
+      sceneMap,
+      propMap,
+      isFormatted,
+      taskId,
+      sceneNamesInBatch,
+    );
+
+    if (result.length > 0) {
+      return result;
+    }
+
+    // 2. 解析失败，检查是否需要降级拆分
+    if (retryCount >= maxRetry) {
+      this.logger.error(
+        `批次 ${batchIndex} 已达到最大重试次数，放弃解析`,
+      );
+      return [];
+    }
+
+    // 3. 自动降级：将批次拆分为多份（首次拆 4 份，后续对半拆）
+    this.logger.warn(
+      `批次 ${batchIndex} 解析失败，执行第 ${retryCount + 1} 次降级拆分`,
+    );
+
+    let subBatches: string[] = [];
+    // 首次降级拆成 4 份更激进，后续再对半拆
+    const splitCount = retryCount === 0 ? 4 : 2;
+
+    if (isFormatted) {
+      // 格式化剧本：按场景数均分
+      const scenes = batchText
+        .split(/(?=^\s*§\s+)/m)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      if (scenes.length <= 1) {
+        this.logger.error(`批次 ${batchIndex} 只剩 1 个场景，无法继续拆分`);
+        return [];
+      }
+      // 如果场景数不足 splitCount，按场景数拆分（至少每份 1 个场景）
+      const actualSplitCount = Math.min(splitCount, scenes.length);
+      const chunkSize = Math.ceil(scenes.length / actualSplitCount);
+      for (let i = 0; i < scenes.length; i += chunkSize) {
+        const chunk = scenes.slice(i, i + chunkSize);
+        const text = chunk.join("\n\n");
+        if (text.trim().length > 0) {
+          subBatches.push(text);
+        }
+      }
+    } else {
+      // 非格式化剧本：按文本长度均分（寻找换行符作为分割点）
+      const segmentSize = Math.floor(batchText.length / splitCount);
+      let start = 0;
+      for (let i = 1; i < splitCount; i++) {
+        const target = start + segmentSize;
+        let splitPoint = batchText.lastIndexOf("\n", target);
+        if (splitPoint <= start) {
+          splitPoint = target; // fallback
+        }
+        const segment = batchText.slice(start, splitPoint);
+        if (segment.trim().length > 0) {
+          subBatches.push(segment);
+        }
+        start = splitPoint;
+      }
+      // 最后一段
+      const lastSegment = batchText.slice(start);
+      if (lastSegment.trim().length > 0) {
+        subBatches.push(lastSegment);
+      }
+    }
+
+    if (subBatches.length < 2) {
+      this.logger.error(`批次 ${batchIndex} 无法继续拆分，放弃解析`);
+      return [];
+    }
+
+    // 4. 递归解析子批次
+    const subResults: Array<
+      Array<{
+        sequenceNumber: number;
+        sceneName: string;
+        characterNames: string[];
+        propNames: string[];
+        description: string;
+        shotType?: string;
+        cameraAngle?: string;
+        duration?: number;
+        dialogues: Array<Record<string, unknown>>;
+      }>
+    > = [];
+
+    for (let i = 0; i < subBatches.length; i++) {
+      const subResult = await this.parseBatchWithSplitFallback(
+        subBatches[i],
+        batchIndex,
+        modelId,
+        characterMap,
+        sceneMap,
+        propMap,
+        sceneSettingMap,
+        isFormatted,
+        taskId,
+        retryCount + 1,
+        undefined, // 降级拆分的子批次不再传递场景约束
+      );
+      if (subResult.length > 0) {
+        subResults.push(subResult);
+      }
+    }
+
+    // 5. 合并子批次结果
+    if (subResults.length === 0) {
+      return [];
+    }
+
+    return this.mergeBatchResults(subResults);
+  }
+
+  /**
+   * 广播分镜解析批次进度
+   * @param params 进度参数
+   */
+  private async broadcastStoryboardBatchProgress(params: {
+    taskId: string;
+    scriptId: string;
+    status: "processing" | "completed" | "failed";
+    progress: number;
+    message: string;
+    currentBatch?: number;
+    totalBatches?: number;
+    completedShots?: number;
+    estimatedTotalShots?: number;
+    result?: { shotGroups?: unknown[] };
+    error?: { message?: string };
+  }): Promise<void> {
+    try {
+      const {
+        taskId,
+        scriptId,
+        status,
+        progress,
+        message,
+        currentBatch,
+        totalBatches,
+        completedShots,
+        estimatedTotalShots,
+        result,
+        error,
+      } = params;
+
+      // 将进度持久化到数据库，使前端刷新后可恢复
+      try {
+        const script = await this.scriptRepository.findOne({
+          where: { id: scriptId },
+        });
+        if (script) {
+          script.metadata = {
+            ...script.metadata,
+            storyboardParseProgress: progress,
+            storyboardParseBatchInfo:
+              currentBatch !== undefined && totalBatches !== undefined
+                ? {
+                    currentBatch,
+                    totalBatches,
+                    completedShots: completedShots || 0,
+                    estimatedTotalShots,
+                  }
+                : undefined,
+          };
+          await this.scriptRepository.save(script);
+        }
+      } catch (saveErr) {
+        this.logger.warn(
+          `保存分镜解析进度到数据库失败: ${(saveErr as Error).message}`,
+        );
+      }
+
+      await this.webSocketService.broadcastTaskProgress(taskId, {
+        type: "storyboard:parse-progress",
+        taskId,
+        scriptId,
+        status,
+        progress,
+        message,
+        result,
+        error,
+        timestamp: new Date().toISOString(),
+        batchInfo:
+          currentBatch !== undefined && totalBatches !== undefined
+            ? {
+                currentBatch,
+                totalBatches,
+                completedShots: completedShots || 0,
+                estimatedTotalShots,
+              }
+            : undefined,
+      });
+    } catch (err) {
+      this.logger.warn(`广播分镜批次进度失败: ${(err as Error).message}`);
     }
   }
 

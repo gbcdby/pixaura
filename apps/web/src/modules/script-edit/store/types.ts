@@ -228,6 +228,14 @@ export interface StoryboardStepState {
 
   // 分镜解析状态（独立于资源解析）
   storyboardParseStatus?: "pending" | "processing" | "completed" | "failed";
+
+  // 分镜解析分批信息（可选，仅在分批模式下存在）
+  parseBatchInfo?: {
+    currentBatch: number;
+    totalBatches: number;
+    completedShots: number;
+    estimatedTotalShots?: number;
+  };
 }
 
 // 音效信息

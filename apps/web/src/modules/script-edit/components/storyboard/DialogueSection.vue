@@ -133,6 +133,43 @@ const dialog = useDialog();
 const ttsStore = useTtsStore();
 const { cropImage, isCropping } = useImageCrop();
 
+// 动作/表情输入框本地缓存（避免输入过程中触发保存导致失焦）
+const dialogueActionInputs = ref<Record<string, string>>({});
+
+// 从 props.dialogues 初始化动作输入缓存
+function initDialogueActionInputs() {
+  props.dialogues.forEach((d) => {
+    dialogueActionInputs.value[d.id] = (d.actions || []).join(",");
+  });
+}
+
+// 监听对话列表变化，初始化缓存
+watch(
+  () => props.dialogues,
+  () => {
+    initDialogueActionInputs();
+  },
+  { immediate: true, deep: true },
+);
+
+// 动作/表情输入框失焦时解析并上报
+function flushActionUpdate(dialogueId: string) {
+  const dialogue = props.dialogues.find((d) => d.id === dialogueId);
+  if (!dialogue) return;
+
+  const val = dialogueActionInputs.value[dialogueId] || "";
+  const original = (dialogue.actions || []).join(",");
+
+  // 内容无变化时不触发保存
+  if (val === original) return;
+
+  const actions = val
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  updateDialogue(dialogueId, { actions });
+}
+
 // 是否已有旁白（用于限制旁白数量）
 const hasExistingVoiceover = computed(() =>
   props.dialogues.some((d) => d.isVoiceover),
@@ -1213,22 +1250,14 @@ function getShotVideoButtonText(dialogueId: string): string {
             <!-- 第三行：动作输入 -->
             <div class="dialogue-actions-row">
               <n-input
-                :value="(dialogue.actions || []).join(',')"
+                v-model:value="dialogueActionInputs[dialogue.id]"
                 placeholder="动作/表情"
                 aria-label="动作"
                 size="small"
                 :maxlength="200"
                 :disabled="isReadonly || loading"
                 class="actions-input"
-                @update:value="
-                  (val: string) => {
-                    const actions = val
-                      .split(',')
-                      .map((s) => s.trim())
-                      .filter((s) => s.length > 0);
-                    updateDialogue(dialogue.id, { actions });
-                  }
-                "
+                @blur="flushActionUpdate(dialogue.id)"
               />
             </div>
 
@@ -1546,21 +1575,14 @@ function getShotVideoButtonText(dialogueId: string): string {
           <!-- 第三行：动作输入 -->
           <div class="dialogue-actions-row">
             <n-input
-              :value="(dialogue.actions || []).join(',')"
+              v-model:value="dialogueActionInputs[dialogue.id]"
               placeholder="动作/表情"
               aria-label="动作"
               size="small"
+              :maxlength="200"
               :disabled="isReadonly || loading"
               class="actions-input"
-              @update:value="
-                (val: string) => {
-                  const actions = val
-                    .split(',')
-                    .map((s) => s.trim())
-                    .filter((s) => s.length > 0);
-                  updateDialogue(dialogue.id, { actions });
-                }
-              "
+              @blur="flushActionUpdate(dialogue.id)"
             />
           </div>
         </div>

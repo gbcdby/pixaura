@@ -19,8 +19,8 @@ export const AI_STREAM_TIMEOUT_CONFIG = {
   ),
   /** 总超时 */
   totalTimeoutMs: parseInt(process.env.AI_STREAM_TIMEOUT_TOTAL || "300000", 10),
-  /** HTTP 请求超时 - 剧本生成需要更长时间，增加到5分钟 */
-  requestTimeoutMs: parseInt(process.env.AI_REQUEST_TIMEOUT || "300000", 10),
+  /** HTTP 请求超时 - 剧本生成和分镜解析需要更长时间，增加到10分钟 */
+  requestTimeoutMs: parseInt(process.env.AI_REQUEST_TIMEOUT || "600000", 10),
 };
 
 /**

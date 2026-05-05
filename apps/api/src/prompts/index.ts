@@ -19,8 +19,11 @@ export {
   buildSceneParseUserPrompt,
   PROP_PARSE_SYSTEM_PROMPT,
   buildPropParseUserPrompt,
-  STORYBOARD_PARSE_SYSTEM_PROMPT,
-  buildStoryboardParseUserPrompt,
+  // 分批解析提示词
+  STORYBOARD_OUTLINE_SYSTEM_PROMPT,
+  buildStoryboardOutlineUserPrompt,
+  STORYBOARD_BATCH_PARSE_SYSTEM_PROMPT,
+  buildStoryboardBatchParseUserPrompt,
 } from "./script-parse";
 
 export {

@@ -1668,3 +1668,78 @@ export interface ScriptState {
   aiGenerating: boolean;
   aiProgress: number;
 }
+
+// ==================== 细粒度更新 DTOs（竞态问题改造）====================
+
+/**
+ * PUT /scripts/:id/characters
+ */
+export const UpdateScriptCharactersSchema = z.object({
+  characters: z.array(CharacterRefSchema).describe("角色引用列表"),
+});
+export type UpdateScriptCharactersDto = z.infer<
+  typeof UpdateScriptCharactersSchema
+>;
+
+/**
+ * PUT /scripts/:id/scenes
+ */
+export const UpdateScriptScenesSchema = z.object({
+  scenes: z.array(SceneRefSchema).describe("场景设定列表"),
+});
+export type UpdateScriptScenesDto = z.infer<typeof UpdateScriptScenesSchema>;
+
+/**
+ * PUT /scripts/:id/props
+ */
+export const UpdateScriptPropsSchema = z.object({
+  props: z.array(PropRefSchema).describe("道具引用列表"),
+});
+export type UpdateScriptPropsDto = z.infer<typeof UpdateScriptPropsSchema>;
+
+/**
+ * PATCH /scripts/:id/shot-groups/:groupId
+ * ShotGroup 部分字段更新（所有字段可选）
+ */
+export const UpdateScriptShotGroupSchema = ShotGroupSchema.partial();
+export type UpdateScriptShotGroupDto = z.infer<
+  typeof UpdateScriptShotGroupSchema
+>;
+
+/**
+ * PUT /scripts/:id/shot-groups
+ * 整段替换分镜组
+ */
+export const UpdateScriptShotGroupsSchema = z.object({
+  shotGroups: z.array(ShotGroupSchema).describe("分镜组列表"),
+});
+export type UpdateScriptShotGroupsDto = z.infer<
+  typeof UpdateScriptShotGroupsSchema
+>;
+
+/**
+ * PUT /scripts/:id/creation-settings
+ * 顶栏创作设置
+ */
+export const UpdateScriptCreationSettingsSchema = z.object({
+  resolution: z.string().optional().describe("分辨率比例"),
+  genre: z.string().optional().describe("类型"),
+  narrationVoiceId: z.string().optional().describe("旁白音色 ID"),
+  narrationInstructions: z.string().optional().describe("旁白指令控制"),
+});
+export type UpdateScriptCreationSettingsDto = z.infer<
+  typeof UpdateScriptCreationSettingsSchema
+>;
+
+/**
+ * PUT /scripts/:id/storyboard-settings
+ * 分镜步骤默认模型配置
+ */
+export const UpdateScriptStoryboardSettingsSchema = z.object({
+  shotGroupSettings: ShotGroupSettingsSchema.optional().describe(
+    "分镜步骤默认模型配置",
+  ),
+});
+export type UpdateScriptStoryboardSettingsDto = z.infer<
+  typeof UpdateScriptStoryboardSettingsSchema
+>;

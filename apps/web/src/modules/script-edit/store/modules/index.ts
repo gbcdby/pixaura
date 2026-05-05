@@ -13,6 +13,8 @@ export {
   createCoreRefs,
   createCoreGetters,
   createCoreActions,
+  enqueueUpdate,
+  _resetUpdateQueue,
   type CoreStoreRefs,
 } from "./core";
 export { createWsTaskManager, type WsTaskManager } from "./wsTask";

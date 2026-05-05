@@ -26,6 +26,7 @@ import RegionOverlay from "./storyboard/RegionOverlay.vue";
 import { useScriptModelsStore, renderModelOptionWithPrice } from "@/stores/script-models";
 import { useTtsStore } from "@/stores/tts";
 import { scriptApi } from "@/modules/script/api";
+import { enqueueUpdate } from "../store/modules";
 
 // Props
 const props = defineProps<{
@@ -55,6 +56,34 @@ const isGenerating = ref(false);
 
 // 组件挂载时加载音色数据
 ttsStore.loadVoices();
+
+/**
+ * 比较当前分镜组与上次保存状态，返回变更的 groupId 列表。
+ * 如果发生新增/删除/重排序，返回 null（应使用 PUT 整段替换）。
+ */
+function getChangedGroupIds(
+  current: StoryboardRef[],
+  saved: StoryboardRef[],
+): string[] | null {
+  const currentIds = current.map((s) => s.id);
+  const savedIds = saved.map((s) => s.id);
+
+  // 新增/删除/重排序 → 整段 PUT
+  if (currentIds.length !== savedIds.length) return null;
+  for (let i = 0; i < currentIds.length; i++) {
+    if (currentIds[i] !== savedIds[i]) return null;
+  }
+
+  const changed: string[] = [];
+  for (let i = 0; i < current.length; i++) {
+    if (
+      JSON.stringify(toRaw(current[i])) !== JSON.stringify(toRaw(saved[i]))
+    ) {
+      changed.push(current[i].id);
+    }
+  }
+  return changed;
+}
 
 // 实际保存逻辑（供 debounce 包装版和立即版共用）
 async function doSaveStoryboards() {
@@ -93,28 +122,88 @@ async function doSaveStoryboards() {
       };
     });
 
-    // 更新步骤级别的模型配置到 store（单一数据源）
-    scriptEditStore.steps.storyboards.defaultImageModelId =
-      selectedImageModel.value || undefined;
-    scriptEditStore.steps.storyboards.defaultVideoModelId =
-      selectedVideoModel.value || undefined;
-    scriptEditStore.steps.storyboards.defaultLipSyncModelId =
-      selectedLipSyncModel.value || undefined;
-
-    // 使用 store 的 buildContentForSave 构建完整 content（单一数据源）
-    const content = scriptEditStore.buildContentForSave({
+    // 使用细粒度端点保存分镜数据和设置（避免整份 content 覆盖竞态）
+    // 通过 buildContentForSave 将 StoryboardRef 转换为 ShotGroup 格式
+    const shotGroupsForSave = scriptEditStore.buildContentForSave({
       shotGroups: storyboardsToSave,
-      shotGroupSettings: {
-        defaultImageModelId: selectedImageModel.value || undefined,
-        defaultVideoModelId: selectedVideoModel.value || undefined,
-        defaultLipSyncModelId: selectedLipSyncModel.value || undefined,
-      },
+    }).shotGroups;
+
+    // 保存前检查模型配置是否实际变化，避免分镜内容修改时连带触发 storyboard-settings
+    const prevImageModel = scriptEditStore.steps.storyboards.defaultImageModelId;
+    const prevVideoModel = scriptEditStore.steps.storyboards.defaultVideoModelId;
+    const prevLipSyncModel = scriptEditStore.steps.storyboards.defaultLipSyncModelId;
+    const nextImageModel = selectedImageModel.value || undefined;
+    const nextVideoModel = selectedVideoModel.value || undefined;
+    const nextLipSyncModel = selectedLipSyncModel.value || undefined;
+    const hasModelChange =
+      prevImageModel !== nextImageModel ||
+      prevVideoModel !== nextVideoModel ||
+      prevLipSyncModel !== nextLipSyncModel;
+
+    // 更新步骤级别的模型配置到 store（单一数据源）
+    scriptEditStore.steps.storyboards.defaultImageModelId = nextImageModel;
+    scriptEditStore.steps.storyboards.defaultVideoModelId = nextVideoModel;
+    scriptEditStore.steps.storyboards.defaultLipSyncModelId = nextLipSyncModel;
+
+    await enqueueUpdate(`script:${props.scriptId}`, async () => {
+      const changedIds = getChangedGroupIds(
+        storyboards.value,
+        lastSavedShotGroups.value,
+      );
+      // 无任何分镜组变更 → 跳过保存
+      if (changedIds && changedIds.length === 0) {
+        console.log("[doSaveStoryboards] 无变更，跳过保存");
+        return;
+      }
+      // 只有一个分镜组发生变更且没有新增/删除/重排序 → 走 PATCH 细粒度更新
+      if (changedIds && changedIds.length === 1) {
+        const groupId = changedIds[0];
+        const changedGroup = shotGroupsForSave.find((g) => g.id === groupId);
+        if (changedGroup) {
+          console.log(
+            `[doSaveStoryboards] 单组 PATCH: groupId=${groupId}`,
+          );
+          await scriptApi.updateShotGroup(
+            props.projectId,
+            props.scriptId,
+            groupId,
+            changedGroup,
+          );
+        } else {
+          await scriptApi.updateShotGroups(
+            props.projectId,
+            props.scriptId,
+            shotGroupsForSave,
+          );
+        }
+      } else {
+        console.log(
+          `[doSaveStoryboards] 整段 PUT: changedIds=${changedIds?.join(",") ?? "null"}`,
+        );
+        await scriptApi.updateShotGroups(
+          props.projectId,
+          props.scriptId,
+          shotGroupsForSave,
+        );
+      }
+      // 只有模型配置实际变化时才调用 storyboard-settings，减少无意义请求
+      if (hasModelChange) {
+        await scriptApi.updateStoryboardSettings(
+          props.projectId,
+          props.scriptId,
+          {
+            defaultImageModelId: nextImageModel,
+            defaultVideoModelId: nextVideoModel,
+            defaultLipSyncModelId: nextLipSyncModel,
+          },
+        );
+      }
     });
 
-    await scriptApi.updateScript(props.projectId, props.scriptId, {
-      content:
-        content as unknown as import("@pixaura/shared-types").UpdateScriptDto["content"],
-    });
+    // 保存成功后更新基准快照
+    lastSavedShotGroups.value = JSON.parse(
+      JSON.stringify(storyboards.value.map((s) => toRaw(s))),
+    );
 
     // 成功后清除快照
     scriptEditStore.clearSnapshot();
@@ -198,6 +287,11 @@ const stopInitWatch = watch(
       }, 100);
       stopInitWatch(); // 初始化完成后停止监听，避免重复执行
 
+      // 初始化 lastSavedShotGroups，作为后续变更检测的基准
+      lastSavedShotGroups.value = JSON.parse(
+        JSON.stringify(storyboards.value.map((s) => toRaw(s))),
+      );
+
       // Bug 1 修复：移除自动持久化逻辑
       // 原逻辑检查 storyboards 字段是否为空来决定是否自动保存，但现在使用 shotGroups 字段
       // 即使 DB 中有 shotGroups 数据，storyboards 字段为空也会触发不必要的保存
@@ -213,6 +307,8 @@ const stopInitWatch = watch(
 const isInitializing = ref(true);
 // 防止模型变更 watch 和 storyboards watch 双重触发保存
 const isModelChangeSaving = ref(false);
+// 记录上次成功保存的分镜组状态，用于检测变更粒度（单组 PATCH vs 整段 PUT）
+const lastSavedShotGroups = ref<StoryboardRef[]>([]);
 
 watch(
   () => scriptEditStore.steps.storyboards.items,
@@ -290,6 +386,32 @@ const stepStatus = computed(
   () => props.computedStatus ?? stepState.value.status,
 );
 const hasStoryboards = computed(() => storyboards.value.length > 0);
+
+// 分镜解析步骤的动态描述文案（展示分批进度信息）
+const stepDescription = computed(() => {
+  const batchInfo = stepState.value.parseBatchInfo;
+  if (
+    stepState.value.storyboardParseStatus === "processing" &&
+    batchInfo
+  ) {
+    const { currentBatch, totalBatches, completedShots, estimatedTotalShots } =
+      batchInfo;
+    const totalText = estimatedTotalShots
+      ? `预计共 ${estimatedTotalShots} 个`
+      : "";
+    return `正在解析第 ${currentBatch}/${totalBatches} 批分镜（已解析 ${completedShots} 个）${totalText}`;
+  }
+  // 默认静态描述
+  return "将剧本转换为分镜脚本";
+});
+
+// 分镜解析进度（用于进度条显示）
+const parseProgress = computed(() => {
+  if (stepState.value.storyboardParseStatus === "processing") {
+    return stepState.value.progress || 0;
+  }
+  return 0;
+});
 
 // 角色、场景、道具选项数据
 // Bug 修复：使用单一数据源 steps.items，避免 characterMap 中 id/characterId 双重 key 导致重复
@@ -1210,7 +1332,7 @@ async function handleGenerateDialogue(storyboardId: string) {
 // 上传分镜参考图
 async function handleUploadReference(storyboardId: string, file: File) {
   try {
-    await scriptEditStore.uploadReferenceImage(storyboardId, file);
+    await scriptEditStore.uploadShotGroupReferenceImage(storyboardId, file);
     message.success("参考图上传成功");
   } catch (error) {
     message.error("参考图上传失败，请稍后重试");
@@ -1221,7 +1343,7 @@ async function handleUploadReference(storyboardId: string, file: File) {
 // 删除分镜参考图
 async function handleDeleteReference(storyboardId: string, imageId: string) {
   try {
-    await scriptEditStore.deleteAssetImage(storyboardId, imageId);
+    await scriptEditStore.deleteShotGroupImage(storyboardId, imageId);
     message.success("参考图已删除");
   } catch (error) {
     message.error("删除参考图失败，请稍后重试");
@@ -1232,7 +1354,7 @@ async function handleDeleteReference(storyboardId: string, imageId: string) {
 // 上传视频参考图
 async function handleUploadVideoReference(storyboardId: string, file: File) {
   try {
-    await scriptEditStore.uploadVideoReferenceImage(storyboardId, file);
+    await scriptEditStore.uploadShotGroupVideoReferenceImage(storyboardId, file);
     message.success("视频参考图上传成功");
   } catch (error) {
     message.error("视频参考图上传失败，请稍后重试");
@@ -1246,7 +1368,7 @@ async function handleDeleteVideoReference(
   imageId: string,
 ) {
   try {
-    await scriptEditStore.deleteAssetImage(storyboardId, imageId);
+    await scriptEditStore.deleteShotGroupImage(storyboardId, imageId);
     message.success("视频参考图已删除");
   } catch (error) {
     message.error("删除视频参考图失败，请稍后重试");
@@ -1257,7 +1379,7 @@ async function handleDeleteVideoReference(
 // 上传分镜主图
 async function handleUploadMainImage(storyboardId: string, file: File) {
   try {
-    await scriptEditStore.uploadMainImage(storyboardId, file);
+    await scriptEditStore.uploadShotGroupMainImage(storyboardId, file);
     message.success("分镜图上传成功");
   } catch (error) {
     message.error("分镜图上传失败，请稍后重试");
@@ -1769,8 +1891,10 @@ function isUsingManualForDisplay(characterId: string): boolean {
     step-id="storyboards"
     title="分镜生成"
     :step-number="5"
-    description="将剧本转换为分镜脚本"
+    :description="stepDescription"
     :status="stepStatus"
+    :progress="parseProgress"
+    :show-progress-bar="true"
     :action-buttons="actionButtons"
     show-model-selector
     @action="handleAction"

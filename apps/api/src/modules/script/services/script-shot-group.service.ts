@@ -1313,4 +1313,149 @@ export class ScriptShotGroupService {
       url,
     };
   }
+
+  // ========== 分镜组图片上传/删除 ==========
+
+  /**
+   * 上传分镜组图片
+   * 将图片保存到 OSS，并更新 script.content.shotGroups[].images 数组
+   */
+  async uploadShotGroupImage(
+    userId: string,
+    projectId: string,
+    scriptId: string,
+    shotGroupId: string,
+    fileBuffer: Buffer,
+    filename: string,
+    mimeType: string,
+    imageType?: string,
+  ): Promise<{ id: string; url: string; thumbnailUrl?: string; type: string; createdAt: string }> {
+    await this.checkProjectAccess(userId, projectId, "editor");
+
+    const { script, content, shotGroup, shotGroupIndex } = await this.getShotGroup(
+      scriptId,
+      shotGroupId,
+    );
+
+    // 上传文件到 OSS
+    const key = this.ossService.generateKey(
+      FileCategory.IMAGE,
+      filename || "upload.jpg",
+      undefined,
+      projectId,
+    );
+    const uploaded = await this.ossService.uploadFile(key, fileBuffer, {
+      mime: mimeType || "image/jpeg",
+    });
+
+    if (!uploaded) {
+      throw new BadRequestException("文件上传失败，请稍后重试");
+    }
+
+    const imageId = randomUUID();
+    const now = new Date().toISOString();
+    const resolvedType = ["main", "reference", "video_reference"].includes(imageType || "")
+      ? imageType!
+      : "reference";
+
+    const newImage: {
+      id: string;
+      url: string;
+      type: string;
+      createdAt: string;
+    } = {
+      id: imageId,
+      url: uploaded.url,
+      type: resolvedType,
+      createdAt: now,
+    };
+
+    // 更新 shotGroups 的 images 数组
+    const shotGroups =
+      (content.shotGroups as Array<Record<string, unknown>>) || [];
+    const newShotGroups = [...shotGroups];
+    const existingImages =
+      (shotGroup.images as Array<Record<string, unknown>>) || [];
+
+    // 如果是 main 类型，先移除已有的 main 图片（只保留一个主图）
+    let filteredImages = existingImages;
+    if (resolvedType === "main") {
+      filteredImages = existingImages.filter(
+        (img) => (img.type as string) !== "main",
+      );
+    }
+
+    newShotGroups[shotGroupIndex] = {
+      ...shotGroup,
+      images: [...filteredImages, newImage],
+      // main 类型同时更新 mainImageId 和 mainImageKey
+      ...(resolvedType === "main"
+        ? { mainImageId: imageId, mainImageKey: uploaded.url }
+        : {}),
+    };
+    script.content = { ...content, shotGroups: newShotGroups };
+    await this.scriptRepository.save(script);
+
+    return {
+      id: imageId,
+      url: uploaded.url,
+      type: resolvedType,
+      createdAt: now,
+    };
+  }
+
+  /**
+   * 删除分镜组图片
+   * 从 script.content.shotGroups[].images 数组中移除指定图片
+   */
+  async deleteShotGroupImage(
+    userId: string,
+    projectId: string,
+    scriptId: string,
+    shotGroupId: string,
+    imageId: string,
+  ): Promise<{ shotGroupId: string; imageId: string; deleted: boolean }> {
+    await this.checkProjectAccess(userId, projectId, "editor");
+
+    const { script, content, shotGroup, shotGroupIndex } = await this.getShotGroup(
+      scriptId,
+      shotGroupId,
+    );
+
+    const existingImages =
+      (shotGroup.images as Array<{ id: string; type?: string; url?: string }>) || [];
+    const imageToDelete = existingImages.find((img) => img.id === imageId);
+
+    if (!imageToDelete) {
+      throw new NotFoundException("图片不存在");
+    }
+
+    // 从 images 数组中移除
+    const newImages = existingImages.filter((img) => img.id !== imageId);
+
+    // 更新 shotGroup
+    const shotGroups =
+      (content.shotGroups as Array<Record<string, unknown>>) || [];
+    const newShotGroups = [...shotGroups];
+    const updates: Record<string, unknown> = {
+      ...shotGroup,
+      images: newImages,
+    };
+
+    // 如果删除的是 main 图片，同步清除 mainImageId 和 mainImageKey
+    if (imageToDelete.type === "main") {
+      updates.mainImageId = undefined;
+      updates.mainImageKey = undefined;
+    }
+
+    newShotGroups[shotGroupIndex] = updates;
+    script.content = { ...content, shotGroups: newShotGroups };
+    await this.scriptRepository.save(script);
+
+    return {
+      shotGroupId,
+      imageId,
+      deleted: true,
+    };
+  }
 }

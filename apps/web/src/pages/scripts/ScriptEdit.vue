@@ -33,6 +33,8 @@ import { useWebSocketStore } from "@/stores/websocket";
 import { useScriptModelsStore, type ModelOptionWithPrice } from "@/stores/script-models";
 import { useTtsStore } from "@/stores/tts";
 import { ffmpegCacheService } from "@/services/ffmpeg-cache.service";
+import { scriptApi } from "@/modules/script/api";
+import { enqueueUpdate } from "@/modules/script-edit/store/modules";
 import { buildUnifiedTimelineData, type UnifiedTimelineData } from "@/modules/video-edit/composables/useTimelineBuilder";
 import { useVideoDuration } from "@/modules/video-edit/composables/useVideoDuration";
 import WorkflowStep from "@/modules/script-edit/components/WorkflowStep.vue";
@@ -245,20 +247,14 @@ async function saveNarrationVoice() {
   if (!scriptEditStore.projectId || !scriptEditStore.scriptId) return;
 
   try {
-    const content = scriptEditStore.buildContentForSave();
-    // 添加旁白音色配置
-    const updatedContent = {
-      ...content,
-      narrationVoiceId: narrationVoiceId.value,
-    } as unknown as typeof content;
-
-    await fetch(
-      `/api/projects/${scriptEditStore.projectId}/scripts/${scriptEditStore.scriptId}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: updatedContent }),
-      },
+    await enqueueUpdate(`script:${scriptEditStore.scriptId}`, () =>
+      scriptApi.updateCreationSettings(
+        scriptEditStore.projectId,
+        scriptEditStore.scriptId,
+        {
+          narrationVoiceId: narrationVoiceId.value,
+        },
+      ),
     );
 
     // 同步更新本地 store，确保下游组件响应式更新
@@ -278,21 +274,15 @@ async function saveCreationSettings() {
   if (!scriptEditStore.projectId || !scriptEditStore.scriptId) return;
 
   try {
-    const content = scriptEditStore.buildContentForSave();
-    // 添加创作设置
-    const updatedContent = {
-      ...content,
-      resolution: scriptEditStore.creationSettings.resolution,
-      genre: scriptEditStore.creationSettings.genre,
-    } as unknown as typeof content;
-
-    await fetch(
-      `/api/projects/${scriptEditStore.projectId}/scripts/${scriptEditStore.scriptId}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: updatedContent }),
-      },
+    await enqueueUpdate(`script:${scriptEditStore.scriptId}`, () =>
+      scriptApi.updateCreationSettings(
+        scriptEditStore.projectId,
+        scriptEditStore.scriptId,
+        {
+          resolution: scriptEditStore.creationSettings.resolution,
+          genre: scriptEditStore.creationSettings.genre,
+        },
+      ),
     );
   } catch (error) {
     console.error("保存创作设置失败:", error);
@@ -450,8 +440,13 @@ function computeAssetStepStatus(
 function computeStoryboardStatus(): StepStatusType {
   const stepState = scriptEditStore.steps.storyboards;
   const backendStatus = stepState.status;
+  const parseStatus = stepState.storyboardParseStatus;
 
-  // 优先处理 processing/failed/parsing 状态
+  // 优先处理分镜解析状态（解析独立于视频生成）
+  if (parseStatus === "processing") return "processing";
+  if (parseStatus === "failed") return "failed";
+
+  // 再检查步骤状态
   if (backendStatus === "processing") return "processing";
   if (backendStatus === "failed") return "failed";
   if (backendStatus === "parsing") return "parsing";

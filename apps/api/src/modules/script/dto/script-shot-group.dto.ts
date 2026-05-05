@@ -188,3 +188,23 @@ export interface CopyDialogueAudioResponse {
   key: string; // 临时文件相对路径（temp/xxx.wav）
   url: string; // 公网可访问 URL
 }
+
+/**
+ * 分镜组图片上传响应
+ */
+export interface UploadShotGroupImageResponse {
+  id: string;
+  url: string;
+  thumbnailUrl?: string;
+  type: string;
+  createdAt: string;
+}
+
+/**
+ * 分镜组图片删除响应
+ */
+export interface DeleteShotGroupImageResponse {
+  shotGroupId: string;
+  imageId: string;
+  deleted: boolean;
+}

@@ -8,6 +8,7 @@ import type {
 } from "../store/types";
 import type { ScriptContent } from "@pixaura/shared-types";
 import { reactiveSetAdd, reactiveSetDelete } from "./useAssetGeneration";
+import { enqueueUpdate } from "../store/modules";
 
 // 本地状态引用类型（从 store 传入）
 interface StoreRefs {
@@ -53,16 +54,17 @@ export async function generateStoryboardImage(
   step.imageGenerationProgress[storyboardId] = 0;
   delete step.imageGenerationErrors[storyboardId];
 
-  // 使用 Store 中的数据直接保存（单一数据源）
-  // Worker 会通过 WebSocket 通知前端更新图片
+  // 使用细粒度端点保存 shotGroups（避免整份 content 覆盖竞态）
   try {
-    // 直接使用 buildContentForSave 构建完整 content
-    const content = buildContentForSave();
+    const shotGroups = buildContentForSave().shotGroups ?? [];
 
-    await scriptApi.updateScript(projectId.value, scriptId.value, {
-      content:
-        content as unknown as import("@pixaura/shared-types").UpdateScriptDto["content"],
-    });
+    await enqueueUpdate(`script:${scriptId.value}`, () =>
+      scriptApi.updateShotGroups(
+        projectId.value,
+        scriptId.value,
+        shotGroups,
+      ),
+    );
   } catch (e) {
     console.error("[generateStoryboardImage] 持久化资产数据失败:", e);
   }

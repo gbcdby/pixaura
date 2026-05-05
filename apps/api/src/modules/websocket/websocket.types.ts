@@ -460,6 +460,13 @@ export interface StoryboardParseProgressMessage {
     message?: string;
   };
   timestamp: string;
+  /** 分批解析信息（可选，仅在分批模式下存在） */
+  batchInfo?: {
+    currentBatch: number;
+    totalBatches: number;
+    completedShots: number;
+    estimatedTotalShots?: number;
+  };
 }
 
 /**

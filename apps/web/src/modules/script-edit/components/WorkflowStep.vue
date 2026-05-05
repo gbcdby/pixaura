@@ -30,6 +30,7 @@ interface Props {
   selectedModelId?: string;
   loading?: boolean;
   errorMessage?: string;
+  showProgressBar?: boolean;
   actionButtons?: {
     key: string;
     label: string;
@@ -47,6 +48,7 @@ const props = withDefaults(defineProps<Props>(), {
   selectedModelId: "",
   loading: false,
   errorMessage: "",
+  showProgressBar: false,
   actionButtons: () => [],
 });
 
@@ -67,10 +69,10 @@ const statusMap: Record<
 > = {
   pending: { text: "待生成", type: "warning" },
   waiting: { text: "待开始", type: "default" },
-  processing: { text: "待生成", type: "warning" },
+  processing: { text: "处理中", type: "primary" },
   completed: { text: "已完成", type: "success" },
   failed: { text: "失败", type: "error" },
-  parsing: { text: "待生成", type: "warning" },
+  parsing: { text: "解析中", type: "primary" },
 };
 
 // 状态图标
@@ -168,19 +170,19 @@ function handleRetry() {
       </div>
     </div>
 
-    <!-- 进度条（仅在处理中状态显示） -->
+    <!-- 进度条（仅在处理中状态且允许显示时展示） -->
     <div
-      v-if="status === 'processing' && progress > 0"
+      v-if="showProgressBar && status === 'processing' && progress > 0"
       class="step-progress"
     >
       <n-progress
         type="line"
         :percentage="progress"
-        :indicator-placement="'inside'"
+        indicator-placement="outside"
         :processing="true"
-        :height="6"
-        :border-radius="3"
-        fill-border-radius="3"
+        :height="18"
+        :border-radius="9"
+        fill-border-radius="9"
       />
     </div>
 

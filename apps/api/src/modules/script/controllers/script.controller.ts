@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -38,6 +39,13 @@ import {
   UpdateScriptDescriptionSchema,
   RegenerateScriptSchema,
   UpdateScriptModelConfigsSchema,
+  UpdateScriptCharactersSchema,
+  UpdateScriptScenesSchema,
+  UpdateScriptPropsSchema,
+  UpdateScriptShotGroupSchema,
+  UpdateScriptShotGroupsSchema,
+  UpdateScriptCreationSettingsSchema,
+  UpdateScriptStoryboardSettingsSchema,
 } from "../dto";
 
 @ApiTags("剧本管理")
@@ -542,6 +550,166 @@ export class ScriptController {
       projectId,
       scriptId,
       dto as any,
+    );
+  }
+
+  // ==================== 细粒度更新接口（竞态问题改造）====================
+
+  @Put(":scriptId/characters")
+  @ApiOperation({ summary: "更新剧本角色引用（字段级合并）" })
+  @ApiParam({ name: "projectId", description: "项目ID" })
+  @ApiParam({ name: "scriptId", description: "剧本ID" })
+  async updateScriptCharacters(
+    @Request() req: { user: { userId: string } },
+    @Param("projectId") projectId: string,
+    @Param("scriptId", ParseUUIDPipe) scriptId: string,
+    @Body(new ZodValidationPipe(UpdateScriptCharactersSchema))
+    dto: unknown,
+  ) {
+    return this.scriptService.updateScript(
+      req.user.userId,
+      projectId,
+      scriptId,
+      { content: { characters: (dto as { characters: unknown[] }).characters } } as any,
+    );
+  }
+
+  @Put(":scriptId/scenes")
+  @ApiOperation({ summary: "更新剧本场景引用（字段级合并）" })
+  @ApiParam({ name: "projectId", description: "项目ID" })
+  @ApiParam({ name: "scriptId", description: "剧本ID" })
+  async updateScriptScenes(
+    @Request() req: { user: { userId: string } },
+    @Param("projectId") projectId: string,
+    @Param("scriptId", ParseUUIDPipe) scriptId: string,
+    @Body(new ZodValidationPipe(UpdateScriptScenesSchema))
+    dto: unknown,
+  ) {
+    return this.scriptService.updateScript(
+      req.user.userId,
+      projectId,
+      scriptId,
+      { content: { scenes: (dto as { scenes: unknown[] }).scenes } } as any,
+    );
+  }
+
+  @Put(":scriptId/props")
+  @ApiOperation({ summary: "更新剧本道具引用（字段级合并）" })
+  @ApiParam({ name: "projectId", description: "项目ID" })
+  @ApiParam({ name: "scriptId", description: "剧本ID" })
+  async updateScriptProps(
+    @Request() req: { user: { userId: string } },
+    @Param("projectId") projectId: string,
+    @Param("scriptId", ParseUUIDPipe) scriptId: string,
+    @Body(new ZodValidationPipe(UpdateScriptPropsSchema))
+    dto: unknown,
+  ) {
+    return this.scriptService.updateScript(
+      req.user.userId,
+      projectId,
+      scriptId,
+      { content: { props: (dto as { props: unknown[] }).props } } as any,
+    );
+  }
+
+  @Patch(":scriptId/shot-groups/:groupId")
+  @ApiOperation({ summary: "部分更新分镜组（字段级合并）" })
+  @ApiParam({ name: "projectId", description: "项目ID" })
+  @ApiParam({ name: "scriptId", description: "剧本ID" })
+  @ApiParam({ name: "groupId", description: "分镜组ID" })
+  async updateScriptShotGroup(
+    @Request() req: { user: { userId: string } },
+    @Param("projectId") projectId: string,
+    @Param("scriptId", ParseUUIDPipe) scriptId: string,
+    @Param("groupId") groupId: string,
+    @Body(new ZodValidationPipe(UpdateScriptShotGroupSchema))
+    dto: unknown,
+  ) {
+    return this.scriptService.updateScriptShotGroup(
+      req.user.userId,
+      projectId,
+      scriptId,
+      groupId,
+      dto as Record<string, unknown>,
+    );
+  }
+
+  @Put(":scriptId/shot-groups")
+  @ApiOperation({ summary: "整段替换分镜组（字段级合并）" })
+  @ApiParam({ name: "projectId", description: "项目ID" })
+  @ApiParam({ name: "scriptId", description: "剧本ID" })
+  async updateScriptShotGroups(
+    @Request() req: { user: { userId: string } },
+    @Param("projectId") projectId: string,
+    @Param("scriptId", ParseUUIDPipe) scriptId: string,
+    @Body(new ZodValidationPipe(UpdateScriptShotGroupsSchema))
+    dto: unknown,
+  ) {
+    return this.scriptService.updateScript(
+      req.user.userId,
+      projectId,
+      scriptId,
+      {
+        content: {
+          shotGroups: (dto as { shotGroups: unknown[] }).shotGroups,
+        },
+      } as any,
+    );
+  }
+
+  @Put(":scriptId/creation-settings")
+  @ApiOperation({ summary: "更新剧本创作设置（字段级合并）" })
+  @ApiParam({ name: "projectId", description: "项目ID" })
+  @ApiParam({ name: "scriptId", description: "剧本ID" })
+  async updateScriptCreationSettings(
+    @Request() req: { user: { userId: string } },
+    @Param("projectId") projectId: string,
+    @Param("scriptId", ParseUUIDPipe) scriptId: string,
+    @Body(new ZodValidationPipe(UpdateScriptCreationSettingsSchema))
+    dto: unknown,
+  ) {
+    const body = dto as {
+      resolution?: string;
+      genre?: string;
+      narrationVoiceId?: string;
+      narrationInstructions?: string;
+    };
+    return this.scriptService.updateScript(
+      req.user.userId,
+      projectId,
+      scriptId,
+      {
+        content: {
+          resolution: body.resolution,
+          genre: body.genre,
+          narrationVoiceId: body.narrationVoiceId,
+          narrationInstructions: body.narrationInstructions,
+        },
+      } as any,
+    );
+  }
+
+  @Put(":scriptId/storyboard-settings")
+  @ApiOperation({ summary: "更新分镜步骤默认配置（字段级合并）" })
+  @ApiParam({ name: "projectId", description: "项目ID" })
+  @ApiParam({ name: "scriptId", description: "剧本ID" })
+  async updateScriptStoryboardSettings(
+    @Request() req: { user: { userId: string } },
+    @Param("projectId") projectId: string,
+    @Param("scriptId", ParseUUIDPipe) scriptId: string,
+    @Body(new ZodValidationPipe(UpdateScriptStoryboardSettingsSchema))
+    dto: unknown,
+  ) {
+    return this.scriptService.updateScript(
+      req.user.userId,
+      projectId,
+      scriptId,
+      {
+        content: {
+          shotGroupSettings: (dto as { shotGroupSettings?: unknown })
+            .shotGroupSettings,
+        },
+      } as any,
     );
   }
 }

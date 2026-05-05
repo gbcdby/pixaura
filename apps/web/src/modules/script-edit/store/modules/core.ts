@@ -379,3 +379,62 @@ export function createCoreActions(refs: CoreStoreRefs) {
     clearSnapshot,
   };
 }
+
+// ============================================================
+// 保存请求串行队列（防并发覆盖）
+// ============================================================
+/**
+ * 同 key 的保存请求串行执行 + 防抖合并：
+ * - 多次入队同 key 时，只保留最后一次 builder（前面的被丢弃）
+ * - 真正执行顺序由队列保证，避免后发请求基于陈旧状态覆盖前发的写入
+ *
+ * 用法：
+ * ```ts
+ * await enqueueUpdate(`script:${scriptId.value}`, () =>
+ *   scriptApi.updateScript(projectId, scriptId, { content }),
+ * );
+ * ```
+ *
+ * 注意：调用方仍负责 createSnapshot/restoreSnapshot 等失败回滚逻辑，
+ * 队列只保证执行顺序，不感知业务回滚语义。
+ */
+const updateQueues = new Map<string, Promise<unknown>>();
+const pendingBuilders = new Map<string, () => Promise<unknown>>();
+
+export function enqueueUpdate<T>(
+  key: string,
+  builder: () => Promise<T>,
+): Promise<T | undefined> {
+  // 同 key 后入队覆盖：只保留最后一次 builder
+  pendingBuilders.set(key, builder as () => Promise<unknown>);
+
+  const prev = updateQueues.get(key) ?? Promise.resolve();
+  const next = prev.then(async () => {
+    const fn = pendingBuilders.get(key);
+    if (!fn) return undefined;
+    pendingBuilders.delete(key);
+    return await fn();
+  });
+
+  // 即使本次 builder 抛异常，也不能让队列断掉：catch 后继续保留链
+  updateQueues.set(
+    key,
+    next.catch(() => undefined),
+  );
+
+  return next as Promise<T | undefined>;
+}
+
+/**
+ * 仅供测试或重置场景使用：清空指定 key 的队列与待执行 builder。
+ * 业务代码请勿调用。
+ */
+export function _resetUpdateQueue(key?: string): void {
+  if (key === undefined) {
+    updateQueues.clear();
+    pendingBuilders.clear();
+  } else {
+    updateQueues.delete(key);
+    pendingBuilders.delete(key);
+  }
+}

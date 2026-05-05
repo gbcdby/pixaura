@@ -56,7 +56,8 @@ import { CharacterService } from "../../character/services/character.service";
 import { SceneService } from "../../scene/services/scene.service";
 import { PropService } from "../../prop/services/prop.service";
 import { ModelService } from "../../model-config/services/model.service";
-import { ScriptContentSchema } from "@pixaura/shared-types";
+import { ScriptContentSchema, type ScriptContent } from "@pixaura/shared-types";
+import { mergeScriptContent, mergeShotGroup } from "../utils/merge-script-content";
 
 /**
  * 剧本服务
@@ -492,8 +493,14 @@ export class ScriptService {
         script.description = dto.description;
       }
       if (dto.content !== undefined) {
-        // Zod 校验 content 字段类型
-        const parseResult = ScriptContentSchema.safeParse(dto.content);
+        // 读-合并-写：防止 WS 回调写入的字段被前端整份 content 覆盖
+        const mergedContent = mergeScriptContent(
+          script.content as ScriptContent,
+          dto.content,
+        );
+
+        // Zod 校验合并后的 content
+        const parseResult = ScriptContentSchema.safeParse(mergedContent);
         if (!parseResult.success) {
           this.logger.warn(
             `Content 校验失败: ${parseResult.error.message}`,
@@ -503,10 +510,10 @@ export class ScriptService {
           );
         }
         script.content = parseResult.data;
-        // 更新字数统计（使用共享工具函数单次遍历计算）
+        // 更新字数统计（**基于合并后的 content，而非 dto.content**）
         const { wordCount, totalScenes, totalParagraphs } =
           calculateScriptStats(
-            dto.content as Parameters<typeof calculateScriptStats>[0],
+            mergedContent as Parameters<typeof calculateScriptStats>[0],
           );
         script.metadata = {
           ...script.metadata,
@@ -523,6 +530,73 @@ export class ScriptService {
         return await this.scriptRepository.save(script);
       } catch (error) {
         // 处理乐观锁版本冲突
+        if (error instanceof OptimisticLockVersionMismatchError) {
+          throw new ConflictException("剧本已被其他操作修改，请刷新后重试");
+        }
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * 部分更新单个分镜组（PATCH /shot-groups/:groupId）
+   * 直接在锁内读取-合并-写，避免 mergeKeyedArray 将其他组视为删除
+   */
+  async updateScriptShotGroup(
+    userId: string,
+    projectId: string,
+    scriptId: string,
+    groupId: string,
+    dto: Record<string, unknown>,
+  ): Promise<Script> {
+    const lockKey = `script:update:${scriptId}`;
+
+    return this.redlockService.withLock(lockKey, 10000, async () => {
+      const script = await this.checkScriptEditable(scriptId, userId);
+
+      if (script.projectId !== projectId) {
+        throw new NotFoundException("剧本不存在");
+      }
+
+      const content = script.content as ScriptContent;
+      const groupIndex = content.shotGroups.findIndex((g) => g.id === groupId);
+      if (groupIndex === -1) {
+        throw new NotFoundException("分镜组不存在");
+      }
+
+      // 使用 mergeShotGroup 对单个组做字段级合并（db 优先字段不会被覆盖）
+      const mergedGroup = mergeShotGroup(
+        content.shotGroups[groupIndex] as unknown as Record<string, unknown>,
+        dto as unknown as Record<string, unknown>,
+      ) as unknown as (typeof content.shotGroups)[0];
+
+      content.shotGroups[groupIndex] = mergedGroup;
+
+      // Zod 校验更新后的 content
+      const parseResult = ScriptContentSchema.safeParse(content);
+      if (!parseResult.success) {
+        this.logger.warn(
+          `Content 校验失败: ${parseResult.error.message}`,
+        );
+        throw new BadRequestException(
+          `剧本内容格式错误: ${parseResult.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+        );
+      }
+      script.content = parseResult.data;
+
+      // 更新字数统计
+      const { wordCount, totalScenes, totalParagraphs } =
+        calculateScriptStats(script.content);
+      script.metadata = {
+        ...script.metadata,
+        wordCount,
+        totalScenes,
+        totalParagraphs,
+      };
+
+      try {
+        return await this.scriptRepository.save(script);
+      } catch (error) {
         if (error instanceof OptimisticLockVersionMismatchError) {
           throw new ConflictException("剧本已被其他操作修改，请刷新后重试");
         }
